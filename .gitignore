@@ -1,0 +1,41 @@
+# ROS 2 / colcon workspace artifacts
+build/
+install/
+log/
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
+# Generated files from MoveIt Setup Assistant
+**/.setup_assistant
+
+# Python cache and virtualenv artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Environment and local runtime state
+.env
+.env.*
+*.log
+*.sqlite
+*.db
+
+# Editor / IDE files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+!.vscode/settings.json
+
+# Codex local state
+.codex
+.codex/
+ros2_ws/.codex
+ros2_ws/.codex/
