@@ -5,6 +5,13 @@
 
   <xacro:include filename="$(find moveit_resources_panda_description)/urdf/panda.urdf"/>
 
+  <!-- Fixed base: without this the whole model is a free body in Gazebo physics. -->
+  <link name="world"/>
+  <joint name="panda_world_joint" type="fixed">
+    <parent link="world"/>
+    <child link="panda_link0"/>
+  </joint>
+
   <ros2_control name="panda_gz_system" type="system">
     <hardware>
       <plugin>gz_ros2_control/GazeboSimSystem</plugin>
@@ -32,4 +39,22 @@
       <parameters>$(find panda_sim_bringup)/config/panda_gz_ros2_control.yaml</parameters>
     </plugin>
   </gazebo>
+
+  <!-- Reduce joint sag before controllers claim position interfaces. -->
+  <xacro:macro name="panda_gz_joint_damping" params="joint_name">
+    <gazebo reference="${joint_name}">
+      <physics>
+        <ode>
+          <implicit_spring_damper>1</implicit_spring_damper>
+        </ode>
+      </physics>
+    </gazebo>
+  </xacro:macro>
+  <xacro:panda_gz_joint_damping joint_name="panda_joint1"/>
+  <xacro:panda_gz_joint_damping joint_name="panda_joint2"/>
+  <xacro:panda_gz_joint_damping joint_name="panda_joint3"/>
+  <xacro:panda_gz_joint_damping joint_name="panda_joint4"/>
+  <xacro:panda_gz_joint_damping joint_name="panda_joint5"/>
+  <xacro:panda_gz_joint_damping joint_name="panda_joint6"/>
+  <xacro:panda_gz_joint_damping joint_name="panda_joint7"/>
 </robot>

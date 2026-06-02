@@ -24,20 +24,35 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
-def _inject_link_inertials(urdf_xml: str, default_mass: float = 0.5) -> str:
+def _link_mass_kg(link_name: str) -> float:
+    """Rough Franka-like masses; moveit_resources URDF has no inertial tags."""
+    if link_name == "world":
+        return 0.0
+    if link_name == "panda_link0":
+        return 4.0
+    if link_name in {"panda_hand", "panda_leftfinger", "panda_rightfinger"}:
+        return 0.5
+    return 2.0
+
+
+def _inject_link_inertials(urdf_xml: str) -> str:
     """moveit_resources Panda URDF has no <inertial>; Gazebo refuses spawn without them."""
     root = ET.fromstring(urdf_xml)
     for link in root.findall("link"):
-        if link.find("inertial") is not None:
+        link_name = link.get("name", "")
+        if link_name == "world" or link.find("inertial") is not None:
+            continue
+        mass_kg = _link_mass_kg(link_name)
+        if mass_kg <= 0.0:
             continue
         mass = ET.SubElement(link, "inertial")
         origin = ET.SubElement(mass, "origin")
         origin.set("xyz", "0 0 0")
         origin.set("rpy", "0 0 0")
         m = ET.SubElement(mass, "mass")
-        m.set("value", str(default_mass))
+        m.set("value", str(mass_kg))
         inertia = ET.SubElement(mass, "inertia")
-        i = default_mass * 0.01
+        i = mass_kg * 0.05
         inertia.set("ixx", str(i))
         inertia.set("iyy", str(i))
         inertia.set("izz", str(i))
@@ -128,7 +143,7 @@ def generate_launch_description():
         output="screen",
     )
 
-    delayed_spawn = TimerAction(period=8.0, actions=[spawn_robot])
+    delayed_spawn = TimerAction(period=3.0, actions=[spawn_robot])
 
     spawn_controllers = Node(
         package="controller_manager",

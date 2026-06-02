@@ -1,4 +1,8 @@
 # ros2_control for Panda in Gazebo (gz_ros2_control) — same names as my_panda_moveit_config.
+gz_ros2_control:
+  ros__parameters:
+    position_proportional_gain: 0.5
+
 controller_manager:
   ros__parameters:
     update_rate: 100

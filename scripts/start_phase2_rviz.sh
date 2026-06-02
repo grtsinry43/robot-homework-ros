@@ -21,7 +21,7 @@ sleep 50
 wait_for_topic /camera/color/image_raw 60 || echo "WARN: camera topics missing"
 wait_for_arm_controller 120
 
-_start_bg static_tf ros2 run tf2_ros static_transform_publisher --x 0 --y 0 --z 0 --qx 0 --qy 0 --qz 0 --qw 1 --frame-id world --child-frame-id panda_link0
+# world→panda_link0 已由 URDF 固定关节 + robot_state_publisher 发布，无需额外 static TF
 
 # --- MoveIt（不再启动 mock spawn_controllers；控制器在 Gazebo 内）---
 _start_bg moveit_grp ros2 launch my_panda_moveit_config move_group.launch.py
