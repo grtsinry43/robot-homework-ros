@@ -33,7 +33,7 @@ class ServoHelper:
     def ensure_started(self, timeout_sec: float = 3.0) -> bool:
         if self._started:
             return True
-        if not self._call_trigger(self._start_client, timeout_sec):
+        if not self._call_trigger(self._start_client, timeout_sec + 2.0):
             self._node.get_logger().error("moveit_servo start_servo 失败")
             return False
         self._started = True
@@ -66,9 +66,9 @@ class ServoHelper:
             return False
         return bool(future.result().success)
 
-    def _spin_until_done(self, future, timeout_sec: float) -> None:
-        deadline = self._node.get_clock().now().nanoseconds + int(timeout_sec * 1e9)
-        while rclpy.ok() and not future.done():
-            if self._node.get_clock().now().nanoseconds > deadline:
-                break
-            rclpy.spin_once(self._node, timeout_sec=0.02)
+    def _spin_until_done(self, future, timeout_sec: float) -> bool:
+        try:
+            rclpy.spin_until_future_complete(self._node, future, timeout_sec=timeout_sec)
+        except rclpy.exceptions.ROSInterruptException:
+            return False
+        return future.done()

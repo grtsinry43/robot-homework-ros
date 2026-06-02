@@ -1,9 +1,9 @@
-"""Phase 2 (RViz): moveit_servo + pick/place nodes with RViz-friendly params.
+"""Phase 2 (Gazebo unified): pick/place + optional moveit_servo.
 
-Prerequisites (started by scripts/start_phase2_rviz.sh):
-  - my_panda_moveit_config demo.launch.py (move_group + fake controllers)
-  - panda_sim_bringup gazebo_desk_only.launch.py (camera for perception)
-  - static TF world -> panda_link0 (bridges Gazebo world to MoveIt root)
+Prerequisites (scripts/start_phase2_rviz.sh / start_phase2_unified.sh):
+  - gazebo_pick_place.launch.py (desk + Franka in one Gazebo GUI)
+  - move_group + spawn_controllers (no RViz demo)
+  - static TF world -> panda_link0
 """
 
 import os

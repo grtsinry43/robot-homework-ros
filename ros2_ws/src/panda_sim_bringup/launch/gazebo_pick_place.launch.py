@@ -45,6 +45,7 @@ def generate_launch_description():
         "use_gui",
         default_value="true" if os.environ.get("DISPLAY", "").strip() else "false",
     )
+    rviz_arg = DeclareLaunchArgument("rviz", default_value="false")
     # Franka example controller; override if your MoveIt Gazebo controllers differ.
     controller_arg = DeclareLaunchArgument(
         "controller",
@@ -69,7 +70,7 @@ def generate_launch_description():
             "load_gripper": LaunchConfiguration("load_gripper"),
             "franka_hand": "franka_hand",
             "gz_args": gz_args_value,
-            "rviz": "false",
+            "rviz": LaunchConfiguration("rviz"),
             "controller": LaunchConfiguration("controller"),
         }.items(),
         condition=IfCondition(LaunchConfiguration("launch_franka")),
@@ -108,6 +109,7 @@ def generate_launch_description():
         launch_franka_arg,
         launch_bridge_arg,
         use_gui_arg,
+        rviz_arg,
         controller_arg,
         gz_resource_path,
         franka_gazebo,

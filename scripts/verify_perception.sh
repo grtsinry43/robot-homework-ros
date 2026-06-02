@@ -25,6 +25,16 @@ if ! echo "$OUT" | grep -q 'id:'; then
   exit 1
 fi
 echo "[PASS] scene_state has objects"
+N_OBJ=$(echo "$OUT" | grep -c '^[[:space:]]*- id:' || true)
+echo "==> object count: $N_OBJ"
+if [[ "$N_OBJ" -ge 2 ]]; then
+  echo "[PASS] multi-object detection (>=2)"
+elif [[ "$N_OBJ" -eq 1 ]]; then
+  echo "[WARN] only 1 object — HSV may need tuning for red/green blocks"
+else
+  echo "[FAIL] no object ids"
+  exit 1
+fi
 
 # Desk layout in panda_link0 (pick_place_desk.sdf): x≈0.3–0.55, y≈±0.12, z≈0.05–0.08
 POS=$(echo "$OUT" | awk '/position:/{getline; if ($1=="x:") {x=$2; getline; y=$2; getline; z=$2; print x,y,z; exit}}')

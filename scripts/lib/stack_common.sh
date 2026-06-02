@@ -49,14 +49,20 @@ _stop_one() {
 
 stop_stack() {
   echo "==> stopping stack"
-  for name in pick_place moveit_servo moveit_demo static_tf gazebo_desk gazebo_franka; do
+  for name in pick_place moveit_servo moveit_demo moveit_grp moveit_ctrl moveit_rsp moveit_rviz static_tf gazebo_desk gazebo_franka gazebo_unified gazebo_panda; do
     _stop_one "$name"
   done
   pkill -f "ign gazebo" 2>/dev/null || true
   pkill -f "gz sim" 2>/dev/null || true
   killall -9 ign 2>/dev/null || true
-  pkill -f perception_node 2>/dev/null || true
-  pkill -f executor_node 2>/dev/null || true
+  pkill -9 -f perception_node 2>/dev/null || true
+  pkill -9 -f executor_node 2>/dev/null || true
+  pkill -9 -f move_group 2>/dev/null || true
+  pkill -9 -f ros2_control_node 2>/dev/null || true
+  pkill -9 -f rviz2 2>/dev/null || true
+  pkill -9 -f servo_node 2>/dev/null || true
+  pkill -9 -f spawner 2>/dev/null || true
+  pkill -9 -f "ros2 control" 2>/dev/null || true
   pkill -f "ros2 launch panda_pick_place" 2>/dev/null || true
   pkill -f "ros2 launch my_panda_moveit_config" 2>/dev/null || true
   pkill -f "ros2 launch panda_sim_bringup" 2>/dev/null || true
@@ -102,4 +108,14 @@ wait_for_service() {
   local timeout="${2:-30}"
   echo "==> wait service $srv (${timeout}s)"
   timeout "$timeout" bash -c "source \"$ROS_SETUP\"; [[ -f \"$WS_SETUP\" ]] && source \"$WS_SETUP\"; until ros2 service list 2>/dev/null | grep -q \"${srv}\"; do sleep 0.5; done"
+}
+
+wait_for_arm_controller() {
+  local timeout="${1:-60}"
+  echo "==> wait panda_arm_controller active (${timeout}s)"
+  if ! timeout "$timeout" bash -c "source \"$ROS_SETUP\"; [[ -f \"$WS_SETUP\" ]] && source \"$WS_SETUP\";
+    until ros2 control list_controllers 2>/dev/null | grep -q 'panda_arm_controller.*active'; do sleep 0.5; done"; then
+    echo "ERROR: panda_arm_controller not active — check $LOG_DIR/gazebo_panda.log for URDF/Gazebo spawn errors" >&2
+    return 1
+  fi
 }

@@ -38,6 +38,11 @@ class ExecutorNode(Node):
         self.declare_parameter("converge_thresh_m", 0.005)
         self.declare_parameter("max_iter", 900)
         self.declare_parameter("approach_height_m", 0.12)
+        self.declare_parameter("pre_grasp_height_m", 0.05)
+        self.declare_parameter("skip_servo_within_m", 0.12)
+        self.declare_parameter("skip_place_servo", True)
+        self.declare_parameter("skip_all_servo", False)
+        self.declare_parameter("servo_max_duration_sec", 20.0)
         self.declare_parameter("lift_height_m", 0.15)
         self.declare_parameter("stale_after_sec", 10.0)
         self.declare_parameter("servo_node_name", "servo_node")
@@ -105,6 +110,9 @@ class ExecutorNode(Node):
         self._scene = msg
 
     def _goal_ok(self, _goal) -> GoalResponse:
+        if self._current_task:
+            self.get_logger().warning(f"拒绝新 goal：仍在执行 {self._current_task}")
+            return GoalResponse.REJECT
         return GoalResponse.ACCEPT
 
     def _cancel_ok(self, _goal) -> CancelResponse:
@@ -196,6 +204,30 @@ class ExecutorNode(Node):
         z = target.pose.position.z + height_offset
         return self._moveit.move_to_xyz(x, y, z)
 
+    def _maybe_servo_to_xyz(
+        self,
+        target_xyz: tuple[float, float, float],
+        goal_handle,
+        phase_prefix: str,
+        *,
+        fallback_track: Callable[[], tuple[bool, ErrorCode, str]] | None = None,
+    ) -> tuple[bool, ErrorCode, str]:
+        if bool(self.get_parameter("skip_all_servo").value):
+            self.get_logger().info(f"{phase_prefix}: skip_all_servo — 仅 MoveIt")
+            return self._moveit.move_to_xyz(target_xyz[0], target_xyz[1], target_xyz[2])
+
+        skip_dist = float(self.get_parameter("skip_servo_within_m").value)
+        ee = self._ee_position()
+        if ee is not None and math.dist(ee, target_xyz) < skip_dist:
+            self.get_logger().info(
+                f"{phase_prefix}: skip servo (EE 距目标 {math.dist(ee, target_xyz):.3f}m < {skip_dist}m)",
+            )
+            return True, ErrorCode.INTERNAL_ERROR, ""
+
+        if fallback_track is not None:
+            return fallback_track()
+        return self._visual_servo_to_pose(lambda: target_xyz, goal_handle, phase_prefix)
+
     def _visual_servo_to_pose(
         self,
         target_fn: Callable[[], tuple[float, float, float] | None],
@@ -209,10 +241,16 @@ class ExecutorNode(Node):
         kp = self.get_parameter("kp").value
         thresh = self.get_parameter("converge_thresh_m").value
         max_iter = int(self.get_parameter("max_iter").value)
+        max_duration = float(self.get_parameter("servo_max_duration_sec").value)
         period = 1.0 / rate_hz
+        t0 = time.monotonic()
 
         try:
             for i in range(max_iter):
+                if time.monotonic() - t0 > max_duration:
+                    self.get_logger().warning(f"{phase_prefix}_servo 超时 {max_duration}s，停止伺服")
+                    self._servo.stop()
+                    return True, ErrorCode.INTERNAL_ERROR, ""
                 if self._check_abort() or goal_handle.is_cancel_requested:
                     self._servo.stop()
                     return False, ErrorCode.SERVO_ABORTED, "被中断"
@@ -286,7 +324,13 @@ class ExecutorNode(Node):
         self._abort.clear()
         object_id = goal_handle.request.object_id
         self._current_task = f"pick_object({object_id})"
+        try:
+            return self._execute_pick_body(goal_handle, object_id)
+        finally:
+            self._servo.stop()
+            self._current_task = ""
 
+    def _execute_pick_body(self, goal_handle, object_id: str):
         target = self._lookup(object_id)
         if target is None:
             if self._scene and any(o.id == object_id for o in self._scene.objects):
@@ -294,7 +338,6 @@ class ExecutorNode(Node):
             else:
                 result = self._make_error_result(PickObject.Result(), ErrorCode.UNKNOWN_OBJECT_ID, f"blackboard 无 {object_id}")
             goal_handle.abort()
-            self._current_task = ""
             return result
 
         table_z = target.pose.position.z
@@ -303,14 +346,12 @@ class ExecutorNode(Node):
         if DEFAULT_ENVELOPE.check_or_error(x, y, approach_z):
             result = self._make_error_result(PickObject.Result(), ErrorCode.OUT_OF_REACH, f"{object_id} 超出工作空间")
             goal_handle.abort()
-            self._current_task = ""
             return result
 
         ok, code, reason = self._ensure_gripper()
         if not ok:
             result = self._make_error_result(PickObject.Result(), code, reason)
             goal_handle.abort()
-            self._current_task = ""
             return result
 
         self._publish_feedback(goal_handle, "pick_open_gripper", 0.05)
@@ -318,7 +359,6 @@ class ExecutorNode(Node):
         if not ok:
             result = self._make_error_result(PickObject.Result(), code, reason)
             goal_handle.abort()
-            self._current_task = ""
             return result
 
         self._publish_feedback(goal_handle, "pick_approach", 0.15)
@@ -326,17 +366,27 @@ class ExecutorNode(Node):
         if not ok:
             result = self._make_error_result(PickObject.Result(), code, reason)
             goal_handle.abort()
-            self._current_task = ""
             return result
 
-        grasp_xyz = (target.pose.position.x, target.pose.position.y, target.pose.position.z)
-        ok, code, reason = self._visual_servo_track_object(
-            object_id, goal_handle, "pick", fallback_xyz=grasp_xyz,
+        x, y, z = target.pose.position.x, target.pose.position.y, target.pose.position.z
+        pre_z = z + float(self.get_parameter("pre_grasp_height_m").value)
+        self._publish_feedback(goal_handle, "pick_pre_grasp", 0.22)
+        ok, code, reason = self._moveit.move_to_xyz(x, y, pre_z)
+        if not ok:
+            result = self._make_error_result(PickObject.Result(), code, reason)
+            goal_handle.abort()
+            return result
+
+        grasp_xyz = (x, y, z)
+        ok, code, reason = self._maybe_servo_to_xyz(
+            grasp_xyz, goal_handle, "pick",
+            fallback_track=lambda: self._visual_servo_track_object(
+                object_id, goal_handle, "pick", fallback_xyz=grasp_xyz,
+            ),
         )
         if not ok:
             result = self._make_error_result(PickObject.Result(), code, reason)
             goal_handle.abort()
-            self._current_task = ""
             return result
 
         self._publish_feedback(goal_handle, "pick_grasp", 0.7)
@@ -344,7 +394,6 @@ class ExecutorNode(Node):
         if not ok:
             result = self._make_error_result(PickObject.Result(), code, reason)
             goal_handle.abort()
-            self._current_task = ""
             return result
 
         self._publish_feedback(goal_handle, "pick_lift", 0.85)
@@ -352,7 +401,6 @@ class ExecutorNode(Node):
         if not ok:
             result = self._make_error_result(PickObject.Result(), code, reason)
             goal_handle.abort()
-            self._current_task = ""
             return result
 
         if self._gripper.ready():
@@ -367,7 +415,6 @@ class ExecutorNode(Node):
         result = PickObject.Result()
         result.success = True
         goal_handle.succeed()
-        self._current_task = ""
         return result
 
     def _execute_place(self, goal_handle):
@@ -375,11 +422,16 @@ class ExecutorNode(Node):
         target_id = goal_handle.request.target_id
         offset = goal_handle.request.offset
         self._current_task = f"place_at({target_id}, {offset})"
+        try:
+            return self._execute_place_body(goal_handle, target_id, offset)
+        finally:
+            self._servo.stop()
+            self._current_task = ""
 
+    def _execute_place_body(self, goal_handle, target_id: str, offset: str):
         if offset not in VALID_OFFSETS:
             result = self._make_error_result(PlaceAt.Result(), ErrorCode.INTERNAL_ERROR, f"不支持 offset: {offset}")
             goal_handle.abort()
-            self._current_task = ""
             return result
 
         base = self._lookup(target_id)
@@ -389,7 +441,6 @@ class ExecutorNode(Node):
             else:
                 result = self._make_error_result(PlaceAt.Result(), ErrorCode.UNKNOWN_OBJECT_ID, f"blackboard 无 {target_id}")
             goal_handle.abort()
-            self._current_task = ""
             return result
 
         try:
@@ -397,14 +448,12 @@ class ExecutorNode(Node):
         except ValueError as exc:
             result = self._make_error_result(PlaceAt.Result(), ErrorCode.INTERNAL_ERROR, str(exc))
             goal_handle.abort()
-            self._current_task = ""
             return result
 
         px, py, pz = place_pose.pose.position.x, place_pose.pose.position.y, place_pose.pose.position.z
         if DEFAULT_ENVELOPE.check_or_error(px, py, pz):
             result = self._make_error_result(PlaceAt.Result(), ErrorCode.OUT_OF_REACH, "放置点超出工作空间")
             goal_handle.abort()
-            self._current_task = ""
             return result
 
         self._publish_feedback(goal_handle, "place_approach", 0.2)
@@ -412,19 +461,19 @@ class ExecutorNode(Node):
         if not ok:
             result = self._make_error_result(PlaceAt.Result(), code, reason)
             goal_handle.abort()
-            self._current_task = ""
             return result
 
         place_xyz = (px, py, pz)
-
-        def place_target_fn() -> tuple[float, float, float] | None:
-            return place_xyz
-
-        ok, code, reason = self._visual_servo_to_pose(place_target_fn, goal_handle, "place")
+        if bool(self.get_parameter("skip_place_servo").value) or bool(
+            self.get_parameter("skip_all_servo").value
+        ):
+            self.get_logger().info("place: MoveIt 直达放置点（无伺服）")
+            ok, code, reason = self._moveit.move_to_xyz(px, py, pz)
+        else:
+            ok, code, reason = self._maybe_servo_to_xyz(place_xyz, goal_handle, "place")
         if not ok:
             result = self._make_error_result(PlaceAt.Result(), code, reason)
             goal_handle.abort()
-            self._current_task = ""
             return result
 
         self._publish_feedback(goal_handle, "place_release", 0.8)
@@ -432,21 +481,19 @@ class ExecutorNode(Node):
         if not ok:
             result = self._make_error_result(PlaceAt.Result(), code, reason)
             goal_handle.abort()
-            self._current_task = ""
             return result
 
         self._held_object_id = None
         result = PlaceAt.Result()
         result.success = True
         goal_handle.succeed()
-        self._current_task = ""
         return result
 
 
 def main() -> None:
     rclpy.init()
     node = ExecutorNode()
-    executor = MultiThreadedExecutor(num_threads=4)
+    executor = MultiThreadedExecutor(num_threads=8)
     executor.add_node(node)
     try:
         executor.spin()

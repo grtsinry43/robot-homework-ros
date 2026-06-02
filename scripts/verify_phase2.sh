@@ -25,6 +25,8 @@ check "pick_object action" bash -c 'ros2 action list | grep -q /pick_place/pick_
 check "place_at action" bash -c 'ros2 action list | grep -q /pick_place/place_at'
 check "executor node" bash -c 'ros2 node list | grep -q pick_place_executor'
 check "servo_node" bash -c 'ros2 node list | grep -q servo_node'
+check "panda_arm_controller active" bash -c \
+  'ros2 control list_controllers 2>/dev/null | grep -q "panda_arm_controller.*active"'
 
 echo "==> Summary: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]]

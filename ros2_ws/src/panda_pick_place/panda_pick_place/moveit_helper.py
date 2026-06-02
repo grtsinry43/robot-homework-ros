@@ -7,7 +7,7 @@ from geometry_msgs.msg import Pose, PoseStamped
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import Constraints, PositionConstraint
 from rclpy.action import ActionClient
-from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
 from shape_msgs.msg import SolidPrimitive
 from tf2_ros import Buffer, TransformException
@@ -35,7 +35,7 @@ class MoveItHelper:
         self._ee_link = ee_link
         self._planning_frame = planning_frame
         self._tf_buffer = tf_buffer
-        self._cb_group = MutuallyExclusiveCallbackGroup()
+        self._cb_group = ReentrantCallbackGroup()
         self._client = ActionClient(
             node, MoveGroup, "move_action", callback_group=self._cb_group,
         )

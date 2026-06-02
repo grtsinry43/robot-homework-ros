@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import rclpy
 from rclpy.action import ActionClient
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
 
 from .errors import ErrorCode
@@ -30,6 +31,7 @@ class GripperHelper:
         self._grasp_action = grasp_action
         self._move_client: ActionClient | None = None
         self._grasp_client: ActionClient | None = None
+        self._cb_group = ReentrantCallbackGroup()
         self._init_clients()
 
     def _init_clients(self) -> None:
@@ -38,8 +40,12 @@ class GripperHelper:
 
             self._Move = Move
             self._Grasp = Grasp
-            self._move_client = ActionClient(self._node, Move, self._move_action)
-            self._grasp_client = ActionClient(self._node, Grasp, self._grasp_action)
+            self._move_client = ActionClient(
+                self._node, Move, self._move_action, callback_group=self._cb_group,
+            )
+            self._grasp_client = ActionClient(
+                self._node, Grasp, self._grasp_action, callback_group=self._cb_group,
+            )
         except ImportError:
             self._node.get_logger().warning(
                 "franka_msgs 未安装 — 夹爪需 franka_ros2 vendor 依赖"
@@ -109,9 +115,9 @@ class GripperHelper:
             return True, ""
         return False, f"夹爪 action status={wrapped.status}"
 
-    def _spin_until_done(self, future, timeout_sec: float) -> None:
-        deadline = self._node.get_clock().now().nanoseconds + int(timeout_sec * 1e9)
-        while rclpy.ok() and not future.done():
-            if self._node.get_clock().now().nanoseconds > deadline:
-                break
-            rclpy.spin_once(self._node, timeout_sec=0.02)
+    def _spin_until_done(self, future, timeout_sec: float) -> bool:
+        try:
+            rclpy.spin_until_future_complete(self._node, future, timeout_sec=timeout_sec)
+        except rclpy.exceptions.ROSInterruptException:
+            return False
+        return future.done()

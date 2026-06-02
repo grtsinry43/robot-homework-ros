@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<!-- Panda arm + hand visuals with gz_ros2_control (arm joints only). -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="panda">
+  <xacro:property name="initial_positions" value="${xacro.load_yaml('$(find my_panda_moveit_config)/config/initial_positions.yaml')['initial_positions']}"/>
+
+  <xacro:include filename="$(find moveit_resources_panda_description)/urdf/panda.urdf"/>
+
+  <ros2_control name="panda_gz_system" type="system">
+    <hardware>
+      <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+    </hardware>
+    <xacro:macro name="panda_gz_joint" params="joint_name">
+      <joint name="${joint_name}">
+        <command_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">${initial_positions[joint_name]}</param>
+        </state_interface>
+        <state_interface name="velocity"/>
+      </joint>
+    </xacro:macro>
+    <xacro:panda_gz_joint joint_name="panda_joint1"/>
+    <xacro:panda_gz_joint joint_name="panda_joint2"/>
+    <xacro:panda_gz_joint joint_name="panda_joint3"/>
+    <xacro:panda_gz_joint joint_name="panda_joint4"/>
+    <xacro:panda_gz_joint joint_name="panda_joint5"/>
+    <xacro:panda_gz_joint joint_name="panda_joint6"/>
+    <xacro:panda_gz_joint joint_name="panda_joint7"/>
+  </ros2_control>
+
+  <gazebo>
+    <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>$(find panda_sim_bringup)/config/panda_gz_ros2_control.yaml</parameters>
+    </plugin>
+  </gazebo>
+</robot>

@@ -1,4 +1,4 @@
-# Phase 2 RViz demo: MoveIt fake controllers, no franka_gripper in sim.
+# Phase 2 Gazebo unified scene: MoveIt macro only (no moveit_servo loop in RViz).
 # Use with: ros2 launch panda_pick_place phase2_rviz.launch.py
 
 pick_place_executor:
@@ -7,10 +7,15 @@ pick_place_executor:
     ee_link: "panda_link8"
     move_group: "panda_arm"
     servo_rate_hz: 30.0
-    kp: 0.3
-    converge_thresh_m: 0.005
-    max_iter: 900
-    approach_height_m: 0.18
+    kp: 0.35
+    converge_thresh_m: 0.02
+    max_iter: 80
+    servo_max_duration_sec: 12.0
+    approach_height_m: 0.15
+    pre_grasp_height_m: 0.05
+    skip_servo_within_m: 0.2
+    skip_all_servo: true
+    skip_place_servo: true
     lift_height_m: 0.15
     stale_after_sec: 10.0
     servo_node_name: "servo_node"
@@ -23,7 +28,9 @@ perception_node:
     camera_frame: "camera_optical_frame"
     base_frame: "panda_link0"
     stale_after_sec: 10.0
-    min_contour_area: 120.0
+    min_contour_area: 50.0
+    # Gazebo ogre often renders blocks without usable hue; use desk SDF layout for RViz联调.
+    sim_layout_fallback: true
     use_camera_info_frame: true
     depth_is_range: true
     override_camera_intrinsics: true

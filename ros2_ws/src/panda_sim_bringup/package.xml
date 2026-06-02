@@ -16,7 +16,14 @@
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>xacro</exec_depend>
-  <!-- Provided by vendor/franka_ros2 after setup_vendor.sh -->
+  <exec_depend>gz_ros2_control</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>joint_trajectory_controller</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <exec_depend>moveit_resources_panda_description</exec_depend>
+  <exec_depend>moveit_resources_panda_moveit_config</exec_depend>
+  <exec_depend>my_panda_moveit_config</exec_depend>
+  <!-- Optional: Franka vendor path (gazebo_pick_place.launch.py) -->
   <exec_depend>franka_gazebo_bringup</exec_depend>
 
   <export>

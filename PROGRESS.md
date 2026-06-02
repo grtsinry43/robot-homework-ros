@@ -15,7 +15,7 @@
 | 构建与 Docker | 🟡 | 镜像 `robot-homework-ros:humble`；`bootstrap` 常需手动补 apt（libfranka 等） |
 | Phase 0 仿真底座 | ✅ | 桌面世界 + 俯视 RGB-D + 桥接 + TF（容器内 `verify_phase0` 通过） |
 | Phase 1 感知 + blackboard | ✅ | 桌面位姿已标定（`verify_perception` 桌面 envelope PASS） |
-| Phase 2 内环 pick/place | 🟡 | MoveIt+控制器已通；smoke 可到 `pick_servo`（伺服偶发丢目标） |
+| Phase 2 内环 pick/place | 🟡 | pick 已 SUCCEEDED；place 待稳；默认 `skip_all_servo`（避免 RViz 假臂循环） |
 | MCP 中间层 | 🟡 | `mcp_pick_place_brain.py` 完整；未接 MCP 客户端端到端 |
 | LLM / 语音外环 | 🟡 | prompt + `resolve_user_input.py`；Whisper / ReAct 闭环未验 |
 | Git | ⚠️ | 大量实现仍为未提交工作区文件 |
@@ -66,12 +66,15 @@
 | 感知物体写入 planning scene | ❌ | DESIGN §5.4 未实现 |
 | `MOTION_COLLISION` 独立上报 | ❌ | 仍多映射为 `MOTION_PLANNING_FAILED` |
 
-**路径 A — RViz（推荐联调）**
+**路径 A — Gazebo 单窗口（推荐，原 start-phase2-rviz 已改）**
 
 ```bash
-./scripts/run_in_container.sh start-phase2-rviz
+./scripts/run_in_container.sh stop          # 先停掉旧栈，关掉所有 RViz/Gazebo 窗口
+./scripts/run_in_container.sh start-phase2-unified   # 或 start-phase2-rviz（等价）
+# 只看 Gazebo：桌面 + 色块 + Franka；默认不启 RViz（避免假臂循环抖动）
+# 调试才开 RViz: LAUNCH_RVIZ=1（与 Gazebo 仍非同一物理仿真）
 ./scripts/run_in_container.sh verify-phase2
-./scripts/run_in_container.sh smoke   # 可选，耗时长
+./scripts/run_in_container.sh smoke
 ```
 
 **路径 B — Gazebo + Franka（实验）**

@@ -29,6 +29,11 @@ case "$CMD" in
     docker compose up -d
     docker compose exec -T ros2-gazebo bash /root/scripts/start_phase2_gazebo.sh "$@"
     ;;
+  start-phase2-unified)
+    xhost +local:docker 2>/dev/null || true
+    docker compose up -d
+    docker compose exec -T ros2-gazebo bash /root/scripts/start_phase2_unified.sh "$@"
+    ;;
   stop)
     docker compose exec -T ros2-gazebo bash /root/scripts/stop_stack.sh 2>/dev/null || true
     ;;
@@ -40,6 +45,9 @@ case "$CMD" in
     ;;
   verify-phase2)
     docker compose exec -T ros2-gazebo bash /root/scripts/verify_phase2.sh
+    ;;
+  verify-gazebo-scene)
+    docker compose exec -T ros2-gazebo bash /root/scripts/verify_gazebo_scene.sh
     ;;
   smoke)
     docker compose exec -T ros2-gazebo bash /root/scripts/smoke_pick_place.sh
@@ -56,6 +64,7 @@ Usage: $0 <command>
   start-phase01     Gazebo desk + perception + executor (Phase 0+1)
   start-phase2-rviz MoveIt RViz demo + servo + Phase 0+1 perception stack
   start-phase2-gazebo Franka Gazebo + camera + pick_place (experimental)
+  start-phase2-unified Gazebo desk+Franka + MoveIt inner loop (one scene GUI)
   stop              Stop all background stack processes in container
   verify-phase0     Camera topics + TF checks
   verify-phase1     trigger_scan + /scene_state
