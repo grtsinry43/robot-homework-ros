@@ -13,6 +13,7 @@ from pick_place_msgs.action import PickObject, PlaceAt
 from pick_place_msgs.srv import AbortTask
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from scene_state_msgs.msg import SceneState
 from tf2_ros import Buffer, TransformException, TransformListener
@@ -58,10 +59,13 @@ class ExecutorNode(Node):
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
 
+        planning_frame = self.get_parameter("planning_frame").value
         self._moveit = MoveItHelper(
             self,
             group_name=self.get_parameter("move_group").value,
             ee_link=self.get_parameter("ee_link").value,
+            planning_frame=planning_frame,
+            tf_buffer=self._tf_buffer,
         )
         self._servo = ServoHelper(
             self,
@@ -241,13 +245,25 @@ class ExecutorNode(Node):
             self._servo.publish_twist(0.0, 0.0, 0.0)
 
     def _visual_servo_track_object(
-        self, object_id: str, goal_handle, phase_prefix: str,
+        self,
+        object_id: str,
+        goal_handle,
+        phase_prefix: str,
+        fallback_xyz: tuple[float, float, float] | None = None,
     ) -> tuple[bool, ErrorCode, str]:
+        """Track object pose; keep last known (or fallback) when perception briefly drops."""
+        last_xyz = fallback_xyz
+
         def target_fn() -> tuple[float, float, float] | None:
+            nonlocal last_xyz
             pose = self._lookup(object_id)
-            if pose is None:
-                return None
-            return (pose.pose.position.x, pose.pose.position.y, pose.pose.position.z)
+            if pose is not None:
+                last_xyz = (
+                    pose.pose.position.x,
+                    pose.pose.position.y,
+                    pose.pose.position.z,
+                )
+            return last_xyz
 
         return self._visual_servo_to_pose(target_fn, goal_handle, phase_prefix)
 
@@ -313,7 +329,10 @@ class ExecutorNode(Node):
             self._current_task = ""
             return result
 
-        ok, code, reason = self._visual_servo_track_object(object_id, goal_handle, "pick")
+        grasp_xyz = (target.pose.position.x, target.pose.position.y, target.pose.position.z)
+        ok, code, reason = self._visual_servo_track_object(
+            object_id, goal_handle, "pick", fallback_xyz=grasp_xyz,
+        )
         if not ok:
             result = self._make_error_result(PickObject.Result(), code, reason)
             goal_handle.abort()
@@ -427,8 +446,10 @@ class ExecutorNode(Node):
 def main() -> None:
     rclpy.init()
     node = ExecutorNode()
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     finally:
         node.destroy_node()
         rclpy.shutdown()

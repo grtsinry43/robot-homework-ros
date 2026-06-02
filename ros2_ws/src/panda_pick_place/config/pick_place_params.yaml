@@ -8,7 +8,7 @@ pick_place_executor:
     kp: 0.3
     converge_thresh_m: 0.005
     max_iter: 900
-    approach_height_m: 0.12
+    approach_height_m: 0.18
     lift_height_m: 0.15
     stale_after_sec: 10.0
     servo_node_name: "servo_node"

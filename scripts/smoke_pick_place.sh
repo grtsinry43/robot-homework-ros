@@ -19,7 +19,8 @@ echo "$SCENE"
 PICK_ID="${SMOKE_PICK_ID:-}"
 PLACE_ID="${SMOKE_PLACE_ID:-}"
 if [[ -z "$PICK_ID" ]]; then
-  PICK_ID=$(echo "$SCENE" | sed -n 's/.*\bid: \([^[:space:]]*\).*/\1/p' | head -1)
+  PICK_ID=$(echo "$SCENE" | sed -n 's/.*\bid: \([^[:space:]]*\).*/\1/p' | grep -E 'red_block|green_block' | head -1)
+  [[ -z "$PICK_ID" ]] && PICK_ID=$(echo "$SCENE" | sed -n 's/.*\bid: \([^[:space:]]*\).*/\1/p' | head -1)
 fi
 if [[ -z "$PLACE_ID" ]]; then
   PLACE_ID=$(echo "$SCENE" | sed -n 's/.*\bid: \([^[:space:]]*\).*/\1/p' | head -1 \

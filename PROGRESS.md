@@ -15,7 +15,7 @@
 | 构建与 Docker | 🟡 | 镜像 `robot-homework-ros:humble`；`bootstrap` 常需手动补 apt（libfranka 等） |
 | Phase 0 仿真底座 | ✅ | 桌面世界 + 俯视 RGB-D + 桥接 + TF（容器内 `verify_phase0` 通过） |
 | Phase 1 感知 + blackboard | ✅ | 桌面位姿已标定（`verify_perception` 桌面 envelope PASS） |
-| Phase 2 内环 pick/place | 🟡 | `verify_phase2` 通过；感知 OK；smoke 卡在 MoveIt 规划（error -4） |
+| Phase 2 内环 pick/place | 🟡 | MoveIt+控制器已通；smoke 可到 `pick_servo`（伺服偶发丢目标） |
 | MCP 中间层 | 🟡 | `mcp_pick_place_brain.py` 完整；未接 MCP 客户端端到端 |
 | LLM / 语音外环 | 🟡 | prompt + `resolve_user_input.py`；Whisper / ReAct 闭环未验 |
 | Git | ⚠️ | 大量实现仍为未提交工作区文件 |
@@ -127,6 +127,8 @@
 | 感知位姿错乱（`OUT_OF_REACH`） | Gazebo 深度=range + 修正 fx + `camera_static_tf.launch.py` |
 | Gazebo `camera_info` fx 与 SDF 不符 | `override_camera_intrinsics`（fx≈554） |
 | 僵尸 `overhead_camera_tf` 污染 TF | `stop_stack` 加强清理；改用静态 TF 发布相机 |
+| MoveIt demo `no ros2_control tag` | URDF 改用 `panda.urdf.xacro` + `moveit_controllers.yaml` |
+| action 回调内 `spin_once` 死锁 | `MultiThreadedExecutor` + `spin_until_future_complete` |
 | `panda_pick_place` 编译失败（`$libexec`） | `setup.cfg` |
 | `bootstrap_workspace.sh` 因 `set -u` 失败 | 改为 `set -eo` |
 | 验证脚本管道与 `check()` 优先级 | `verify_phase0.sh` |
@@ -138,7 +140,7 @@
 
 | 优先级 | 项 | 影响 |
 |--------|-----|------|
-| P0 | MoveIt 对桌面目标 **规划失败**（error -4） | smoke pick/place 需修 approach/姿态或 planning scene |
+| P1 | smoke 全绿 | 伺服丢目标时用 fallback；优先抓方块而非蓝盘 |
 | P0 | Gazebo 臂 + MoveIt 控制器 **未对齐** | `start-phase2-gazebo` 待验 |
 | P1 | 多色块 HSV 仍不稳 | 常只稳检蓝盘；红/绿待调 |
 | P1 | 容器内 **NVIDIA 未透传** | 长期应用 GPU 渲染需修 compose |
@@ -159,7 +161,7 @@
 | 2026-06-02 | 同上 | `start_phase01.sh`：一键起栈 OK |
 | 2026-06-02 | 同上 | `start_phase2_rviz` + `verify_phase2`：5/5 PASS |
 | 2026-06-02 | 同上 | `verify_perception` 桌面位姿 PASS（蓝盘 x≈0.54 y≈-0.05 z≈0.11） |
-| 2026-06-02 | 同上 | `smoke`：已过 `OUT_OF_REACH`；pick 需 `allow_gripper_skip`；place 曾 `MOTION_PLANNING_FAILED` |
+| 2026-06-02 | 同上 | `smoke`：pick 到 `pick_servo`（MoveIt 接近成功）；曾 `CONTROL_FAILED` 已修 |
 | 2026-06-02 | 同上 | Gazebo 空场景修复：SDF1.8+内联相机+server/GUI 分离启动；`stop_stack` 杀光 ign |
 
 **Gazebo 看不见物体？** 先 `./scripts/run_in_container.sh stop`，再 `start-gazebo-desk`；关掉**所有**旧 Gazebo 窗口，等**新** GUI 弹出；在 3D 视图按 `r` 重置视角。
