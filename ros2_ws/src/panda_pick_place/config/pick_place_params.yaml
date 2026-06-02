@@ -19,6 +19,8 @@ pick_place_executor:
     grasp_speed: 0.1
     grasp_force: 5.0
     gripper_open_width_m: 0.08
+    # Desk/RViz 无 franka_gripper 时保持 true；Gazebo+真夹爪联调时改为 false
+    allow_gripper_skip: true
 
 perception_node:
   ros__parameters:
@@ -26,4 +28,11 @@ perception_node:
     camera_frame: "camera_optical_frame"
     base_frame: "panda_link0"
     stale_after_sec: 10.0
-    min_contour_area: 200.0
+    min_contour_area: 120.0
+    use_camera_info_frame: true
+    depth_is_range: true
+    override_camera_intrinsics: true
+    camera_fx: 554.38
+    camera_fy: 554.38
+    camera_cx: 320.0
+    camera_cy: 240.0

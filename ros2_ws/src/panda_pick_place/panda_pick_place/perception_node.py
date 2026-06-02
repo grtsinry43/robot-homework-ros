@@ -21,11 +21,11 @@ import cv2
 import numpy as np
 
 
-# Tuned for Gazebo ogre rendering (wider S/V than nominal OpenCV defaults).
+# Tuned for Gazebo ogre diffuse materials (wide S/V; red uses dual hue wrap).
 LABEL_TO_HSV: dict[str, tuple] = {
-    "red_block": ([0, 80, 50], [15, 255, 255], [165, 80, 50], [180, 255, 255]),
-    "green_block": ([35, 40, 40], [90, 255, 255]),
-    "blue_plate": ([90, 50, 40], [140, 255, 255]),
+    "red_block": ([0, 60, 40], [20, 255, 255], [160, 60, 40], [180, 255, 255]),
+    "green_block": ([30, 35, 35], [95, 255, 255]),
+    "blue_plate": ([85, 40, 35], [145, 255, 255]),
 }
 
 MATCH_DISTANCE_M = 0.08
@@ -37,6 +37,13 @@ class PerceptionNode(Node):
 
         self.declare_parameter("publish_hz", 5.0)
         self.declare_parameter("camera_frame", "camera_optical_frame")
+        self.declare_parameter("use_camera_info_frame", True)
+        self.declare_parameter("depth_is_range", True)
+        self.declare_parameter("override_camera_intrinsics", True)
+        self.declare_parameter("camera_fx", 554.38)
+        self.declare_parameter("camera_fy", 554.38)
+        self.declare_parameter("camera_cx", 320.0)
+        self.declare_parameter("camera_cy", 240.0)
         self.declare_parameter("base_frame", "panda_link0")
         self.declare_parameter("stale_after_sec", 10.0)
         self.declare_parameter("min_contour_area", 200.0)
@@ -110,6 +117,10 @@ class PerceptionNode(Node):
             else:
                 lo, hi = spec
                 mask = cv2.inRange(hsv, np.array(lo), np.array(hi))
+
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             for contour in contours:
@@ -207,20 +218,44 @@ class PerceptionNode(Node):
             return raw / 1000.0 if raw > 0 else None
         return raw if raw > 0.0 else None
 
-    def _backproject_camera(self, u: int, v: int, depth_m: float) -> tuple[float, float, float] | None:
+    def _intrinsics(self) -> tuple[float, float, float, float] | None:
         if self._camera_info is None:
             return None
-        fx = self._camera_info.k[0]
-        fy = self._camera_info.k[4]
-        cx = self._camera_info.k[2]
-        cy = self._camera_info.k[5]
-        x = (u - cx) * depth_m / fx
-        y = (v - cy) * depth_m / fy
+        if self.get_parameter("override_camera_intrinsics").value:
+            return (
+                float(self.get_parameter("camera_fx").value),
+                float(self.get_parameter("camera_fy").value),
+                float(self.get_parameter("camera_cx").value),
+                float(self.get_parameter("camera_cy").value),
+            )
+        return (
+            self._camera_info.k[0],
+            self._camera_info.k[4],
+            self._camera_info.k[2],
+            self._camera_info.k[5],
+        )
+
+    def _backproject_camera(self, u: int, v: int, depth_m: float) -> tuple[float, float, float] | None:
+        intr = self._intrinsics()
+        if intr is None:
+            return None
+        fx, fy, cx, cy = intr
+        ray = np.array([(u - cx) / fx, (v - cy) / fy, 1.0], dtype=np.float64)
+        if self.get_parameter("depth_is_range").value:
+            ray /= np.linalg.norm(ray)
+            return (float(ray[0] * depth_m), float(ray[1] * depth_m), float(ray[2] * depth_m))
         z = depth_m
-        return (x, y, z)
+        return ((u - cx) * depth_m / fx, (v - cy) * depth_m / fy, z)
+
+    def _active_camera_frame(self) -> str:
+        if self.get_parameter("use_camera_info_frame").value and self._camera_info is not None:
+            frame = (self._camera_info.header.frame_id or "").strip()
+            if frame:
+                return frame
+        return str(self.get_parameter("camera_frame").value)
 
     def _transform_to_base(self, xyz: tuple[float, float, float]) -> tuple[float, float, float] | None:
-        camera_frame = self.get_parameter("camera_frame").value
+        camera_frame = self._active_camera_frame()
         base_frame = self.get_parameter("base_frame").value
 
         pt = PointStamped()

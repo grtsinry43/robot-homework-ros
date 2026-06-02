@@ -1,0 +1,10 @@
+moveit_setup_assistant_config:
+  URDF:
+    package: moveit_resources_panda_description
+    relative_path: urdf/panda.urdf
+  SRDF:
+    relative_path: config/panda.srdf
+  CONFIG:
+    author_name: grtsinry43
+    author_email: grtsinry43@outlook.com
+    generated_timestamp: 1717334400

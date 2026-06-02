@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Phase 2 (Gazebo + Franka): vendor Franka sim + desk camera bridge.
-# NOTE: pick_place_desk world merge with Franka default world is still WIP;
-#       this starts official Franka Gazebo + overhead camera (same as gazebo_pick_place.launch.py).
+# Desk world is passed to Franka bringup via gz_args (pick_place_desk.sdf).
 set -eo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

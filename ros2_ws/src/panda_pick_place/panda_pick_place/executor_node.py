@@ -283,7 +283,8 @@ class ExecutorNode(Node):
 
         table_z = target.pose.position.z
         x, y, z = target.pose.position.x, target.pose.position.y, target.pose.position.z
-        if DEFAULT_ENVELOPE.check_or_error(x, y, z):
+        approach_z = z + float(self.get_parameter("approach_height_m").value)
+        if DEFAULT_ENVELOPE.check_or_error(x, y, approach_z):
             result = self._make_error_result(PickObject.Result(), ErrorCode.OUT_OF_REACH, f"{object_id} 超出工作空间")
             goal_handle.abort()
             self._current_task = ""

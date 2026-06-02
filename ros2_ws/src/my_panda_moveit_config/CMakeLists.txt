@@ -13,4 +13,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/launch")
 endif()
 
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
-install(FILES .setup_assistant DESTINATION share/${PROJECT_NAME})
+install(
+  FILES config/moveit_setup_assistant.yaml
+  DESTINATION share/${PROJECT_NAME}
+  RENAME .setup_assistant)

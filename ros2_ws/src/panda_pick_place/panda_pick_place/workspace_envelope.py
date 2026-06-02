@@ -9,12 +9,14 @@ from .errors import ErrorCode, failed
 
 @dataclass(frozen=True)
 class WorkspaceEnvelope:
+    """Reachable EE / goal region in panda_link0 (desk sim: table ~z=0.05–0.08 m)."""
+
     x_min: float = 0.2
     x_max: float = 0.6
     y_min: float = -0.4
     y_max: float = 0.4
-    z_min: float = 0.2
-    z_max: float = 0.7
+    z_min: float = 0.04
+    z_max: float = 0.75
 
     def contains(self, x: float, y: float, z: float) -> bool:
         return (

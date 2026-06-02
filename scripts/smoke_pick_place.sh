@@ -19,10 +19,11 @@ echo "$SCENE"
 PICK_ID="${SMOKE_PICK_ID:-}"
 PLACE_ID="${SMOKE_PLACE_ID:-}"
 if [[ -z "$PICK_ID" ]]; then
-  PICK_ID=$(echo "$SCENE" | awk '/id:/ {print $2; exit}')
+  PICK_ID=$(echo "$SCENE" | sed -n 's/.*\bid: \([^[:space:]]*\).*/\1/p' | head -1)
 fi
 if [[ -z "$PLACE_ID" ]]; then
-  PLACE_ID=$(echo "$SCENE" | awk '/id:/ {print $2; exit}' | sed 's/red_block/blue_plate/; s/green_block/blue_plate/')
+  PLACE_ID=$(echo "$SCENE" | sed -n 's/.*\bid: \([^[:space:]]*\).*/\1/p' | head -1 \
+    | sed 's/red_block/blue_plate/; s/green_block/blue_plate/')
   [[ -z "$PLACE_ID" ]] && PLACE_ID="blue_plate_01"
 fi
 if [[ -z "$PICK_ID" ]]; then

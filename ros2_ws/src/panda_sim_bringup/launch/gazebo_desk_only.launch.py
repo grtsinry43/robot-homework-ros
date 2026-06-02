@@ -26,7 +26,6 @@ def generate_launch_description():
     models_path = os.path.join(pkg_share, "models")
     worlds_path = os.path.join(pkg_share, "worlds", "pick_place_desk.sdf")
     bridge_config = os.path.join(pkg_share, "config", "ros_gz_bridge_camera.yaml")
-    camera_urdf = os.path.join(pkg_share, "urdf", "overhead_camera_static.urdf")
     gz_sim_share = get_package_share_directory("ros_gz_sim")
 
     use_gui_arg = DeclareLaunchArgument(
@@ -63,12 +62,10 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("use_gui")),
     )
 
-    camera_tf = Node(
-        package="robot_state_publisher",
-        executable="robot_state_publisher",
-        name="overhead_camera_tf",
-        parameters=[{"robot_description": open(camera_urdf, encoding="utf-8").read()}],
-        output="screen",
+    camera_static_tf = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_share, "launch", "camera_static_tf.launch.py")
+        ),
     )
 
     ros_gz_bridge = Node(
@@ -84,6 +81,6 @@ def generate_launch_description():
         gz_resource_path,
         gz_sim,
         gz_gui,
-        camera_tf,
+        camera_static_tf,
         ros_gz_bridge,
     ])

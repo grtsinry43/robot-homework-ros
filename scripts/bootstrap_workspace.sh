@@ -32,6 +32,12 @@ colcon build --symlink-install \
   --packages-up-to franka_gazebo_bringup franka_example_controllers
 
 echo "==> colcon build (MoveIt config)"
+# Legacy empty .setup_assistant breaks MoveItConfigsBuilder; install uses config/moveit_setup_assistant.yaml
+SETUP_META="${WS}/src/my_panda_moveit_config/config/moveit_setup_assistant.yaml"
+LEGACY_SETUP="${WS}/src/my_panda_moveit_config/.setup_assistant"
+if [[ ! -s "${LEGACY_SETUP}" ]] && [[ -f "${SETUP_META}" ]]; then
+  cp "${SETUP_META}" "${LEGACY_SETUP}"
+fi
 colcon build --symlink-install \
   --packages-select my_panda_moveit_config
 

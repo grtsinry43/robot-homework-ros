@@ -49,7 +49,7 @@ _stop_one() {
 
 stop_stack() {
   echo "==> stopping stack"
-  for name in pick_place moveit_servo moveit_demo static_tf gazebo_desk; do
+  for name in pick_place moveit_servo moveit_demo static_tf gazebo_desk gazebo_franka; do
     _stop_one "$name"
   done
   pkill -f "ign gazebo" 2>/dev/null || true
@@ -61,7 +61,11 @@ stop_stack() {
   pkill -f "ros2 launch my_panda_moveit_config" 2>/dev/null || true
   pkill -f "ros2 launch panda_sim_bringup" 2>/dev/null || true
   pkill -f static_transform_publisher 2>/dev/null || true
-  sleep 2
+  pkill -f overhead_camera_tf 2>/dev/null || true
+  pkill -f camera_gz_rgbd_alias 2>/dev/null || true
+  pkill -f robot_state_publisher 2>/dev/null || true
+  pkill -f ros_gz_camera_bridge 2>/dev/null || true
+  sleep 3
   true
 }
 
