@@ -1,0 +1,7 @@
+# vcs import src < repos/vendor.repos
+# Pulls official Franka ROS 2 stack (Humble) into ros2_ws/src/vendor/
+repositories:
+  vendor/franka_ros2:
+    type: git
+    url: https://github.com/frankarobotics/franka_ros2.git
+    version: humble

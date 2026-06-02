@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "panda-pick-place": {
+      "command": "python3",
+      "args": ["/ABS/PATH/TO/robot-homework-ros/ros2_ws/mcp_pick_place_brain.py"],
+      "env": {
+        "RCUTILS_LOGGING_USE_STDERR": "1"
+      }
+    }
+  }
+}

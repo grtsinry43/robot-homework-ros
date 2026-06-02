@@ -1,0 +1,23 @@
+# moveit_servo parameters for Franka Panda (Humble)
+# Used by launch/moveit_servo.launch.py — see MoveIt realtime servo tutorial.
+servo_node:
+  ros__parameters:
+    move_group_name: "panda_arm"
+    planning_frame: "panda_link0"
+    ee_frame_name: "panda_link8"
+    robot_link_command_frame: "panda_link0"
+    command_in_type: "unitless"
+    cartesian_command_in_topic: "~/delta_twist_cmds"
+    joint_command_in_topic: "~/delta_joint_cmds"
+    status_topic: "~/status"
+    publish_period: 0.034
+    low_latency_mode: true
+    scale:
+      linear: 0.4
+      rotational: 0.4
+    lower_singularity_threshold: 17.0
+    hard_stop_singularity_threshold: 30.0
+    check_collisions: true
+    collision_check_rate: 10.0
+    self_collision_proximity_threshold: 0.01
+    scene_collision_proximity_threshold: 0.02

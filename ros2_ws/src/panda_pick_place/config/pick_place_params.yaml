@@ -1,0 +1,29 @@
+# Production defaults for pick_place nodes (DESIGN.md §5.1, §5.5)
+pick_place_executor:
+  ros__parameters:
+    planning_frame: "panda_link0"
+    ee_link: "panda_link8"
+    move_group: "panda_arm"
+    servo_rate_hz: 30.0
+    kp: 0.3
+    converge_thresh_m: 0.005
+    max_iter: 900
+    approach_height_m: 0.12
+    lift_height_m: 0.15
+    stale_after_sec: 10.0
+    servo_node_name: "servo_node"
+    servo_twist_topic: "/servo_node/delta_twist_cmds"
+    gripper_move_action: "/franka_gripper/move"
+    gripper_grasp_action: "/franka_gripper/grasp"
+    grasp_width_m: 0.035
+    grasp_speed: 0.1
+    grasp_force: 5.0
+    gripper_open_width_m: 0.08
+
+perception_node:
+  ros__parameters:
+    publish_hz: 5.0
+    camera_frame: "camera_optical_frame"
+    base_frame: "panda_link0"
+    stale_after_sec: 10.0
+    min_contour_area: 200.0

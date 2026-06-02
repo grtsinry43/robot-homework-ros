@@ -1,0 +1,148 @@
+<?xml version="1.0" ?>
+<!-- SDF 1.8 for ign-gazebo 6 GUI compatibility (1.9 World component breaks GUI scene sync). -->
+<sdf version="1.8">
+  <world name="pick_place_desk">
+    <physics name="default_physics" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre</render_engine>
+    </plugin>
+
+    <light name="sun" type="directional">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0.6 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <specular>0.3 0.3 0.3 1</specular>
+      <direction>-0.5 0.1 -1</direction>
+    </light>
+
+    <!-- Default view: look at desk center from front-right -->
+    <gui fullscreen="0">
+      <camera name="user_camera">
+        <pose>0.75 -0.55 0.45 0 0.35 2.0</pose>
+        <view_controller>orbit</view_controller>
+        <projection_type>perspective</projection_type>
+      </camera>
+    </gui>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+          <material>
+            <ambient>0.45 0.45 0.45 1</ambient>
+            <diffuse>0.55 0.55 0.55 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="work_table">
+      <static>true</static>
+      <pose>0.45 0 0.025 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.6 0.4 0.05</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.6 0.4 0.05</size></box></geometry>
+          <material>
+            <ambient>0.75 0.72 0.68 1</ambient>
+            <diffuse>0.85 0.82 0.78 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="red_block_01">
+      <pose>0.35 0.05 0.06 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <material>
+            <ambient>0.9 0.15 0.15 1</ambient>
+            <diffuse>0.95 0.2 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="blue_plate_01">
+      <pose>0.55 -0.05 0.055 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><cylinder><radius>0.08</radius><length>0.01</length></cylinder></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><cylinder><radius>0.08</radius><length>0.01</length></cylinder></geometry>
+          <material>
+            <ambient>0.2 0.35 0.85 1</ambient>
+            <diffuse>0.25 0.45 0.95 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="green_block_01">
+      <pose>0.42 -0.12 0.06 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.04 0.04 0.04</size></box></geometry>
+          <material>
+            <ambient>0.15 0.75 0.25 1</ambient>
+            <diffuse>0.2 0.85 0.3 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Inlined (avoid model:// URI — GUI often fails to resolve include) -->
+    <model name="overhead_camera">
+      <static>true</static>
+      <pose>0.45 0 1.05 0 1.15 0</pose>
+      <link name="camera_link">
+        <visual name="housing">
+          <geometry><box><size>0.06 0.04 0.03</size></box></geometry>
+          <material>
+            <ambient>0.15 0.15 0.15 1</ambient>
+            <diffuse>0.2 0.2 0.2 1</diffuse>
+          </material>
+        </visual>
+        <sensor name="rgbd" type="rgbd_camera">
+          <always_on>true</always_on>
+          <update_rate>30</update_rate>
+          <visualize>false</visualize>
+          <topic>overhead_camera</topic>
+          <camera>
+            <horizontal_fov>1.047</horizontal_fov>
+            <image>
+              <width>640</width>
+              <height>480</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.05</near>
+              <far>3.0</far>
+            </clip>
+          </camera>
+        </sensor>
+      </link>
+    </model>
+  </world>
+</sdf>

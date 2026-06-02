@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<robot name="overhead_camera_static_tf" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!--
+    Static TF for eye-in-world camera (DESIGN.md §6.3).
+    Matches pick_place_desk.sdf overhead_camera pose: 0.45 0 1.05, pitch ~1.15 rad.
+    world -> camera_link; camera_link -> camera_optical_frame (standard optical rotation).
+  -->
+  <link name="world"/>
+  <link name="camera_link"/>
+  <link name="camera_optical_frame"/>
+
+  <joint name="world_to_camera_link" type="fixed">
+    <parent link="world"/>
+    <child link="camera_link"/>
+    <origin xyz="0.45 0.0 1.05" rpy="0 1.15 0"/>
+  </joint>
+
+  <joint name="camera_link_to_optical" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_optical_frame"/>
+    <origin xyz="0 0 0" rpy="-1.57079632679 0 -1.57079632679"/>
+  </joint>
+</robot>

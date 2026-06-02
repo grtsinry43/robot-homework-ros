@@ -1,0 +1,26 @@
+# Phase 2 RViz demo: MoveIt fake controllers, no franka_gripper in sim.
+# Use with: ros2 launch panda_pick_place phase2_rviz.launch.py
+
+pick_place_executor:
+  ros__parameters:
+    planning_frame: "panda_link0"
+    ee_link: "panda_link8"
+    move_group: "panda_arm"
+    servo_rate_hz: 30.0
+    kp: 0.3
+    converge_thresh_m: 0.005
+    max_iter: 900
+    approach_height_m: 0.12
+    lift_height_m: 0.15
+    stale_after_sec: 10.0
+    servo_node_name: "servo_node"
+    servo_twist_topic: "/servo_node/delta_twist_cmds"
+    allow_gripper_skip: true
+
+perception_node:
+  ros__parameters:
+    publish_hz: 5.0
+    camera_frame: "camera_optical_frame"
+    base_frame: "panda_link0"
+    stale_after_sec: 10.0
+    min_contour_area: 120.0

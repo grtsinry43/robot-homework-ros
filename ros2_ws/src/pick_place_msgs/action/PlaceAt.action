@@ -1,0 +1,13 @@
+# Goal
+string target_id
+string offset
+---
+# Result
+bool success
+string code
+string reason
+string suggestion
+---
+# Feedback
+string phase
+float32 progress

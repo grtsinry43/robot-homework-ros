@@ -1,0 +1,4 @@
+# Preempt current pick/place action (DESIGN.md §4.1 abort_current_task)
+---
+bool success
+string what_was_aborted

@@ -1,0 +1,12 @@
+# Goal: semantic object id to pick
+string object_id
+---
+# Result
+bool success
+string code
+string reason
+string suggestion
+---
+# Feedback
+string phase
+float32 progress

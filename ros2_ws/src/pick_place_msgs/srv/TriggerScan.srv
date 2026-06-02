@@ -1,0 +1,4 @@
+# Force one perception cycle before scan_scene reads blackboard
+---
+bool success
+string message

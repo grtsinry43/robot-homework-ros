@@ -1,0 +1,33 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <model name="overhead_camera">
+    <static>true</static>
+    <link name="camera_link">
+      <visual name="housing">
+        <geometry><box><size>0.06 0.04 0.03</size></box></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient></material>
+      </visual>
+
+      <sensor name="rgbd" type="rgbd_camera">
+        <always_on>true</always_on>
+        <update_rate>30</update_rate>
+        <visualize>false</visualize>
+        <topic>overhead_camera</topic>
+        <camera>
+          <horizontal_fov>1.047</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.05</near>
+            <far>3.0</far>
+          </clip>
+        </camera>
+      </sensor>
+    </link>
+
+    <!-- ROS optical frame is published via overhead_camera_static.urdf + robot_state_publisher -->
+  </model>
+</sdf>

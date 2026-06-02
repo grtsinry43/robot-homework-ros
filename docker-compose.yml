@@ -2,25 +2,26 @@ version: '3.8'
 
 services:
   ros2-gazebo:
-    # 使用 ROS 2 Humble 桌面版官方镜像
-    image: osrf/ros:humble-desktop
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: robot-homework-ros:humble
     container_name: ros2_gazebo_dev
-    network_mode: host      # 直接使用宿主机网络，方便后续和局域网内的硬件通信
-    privileged: true        # 获取宿主机设备权限（如连接真实的 USB 摄像头或串口）
-    
+    network_mode: host
+    privileged: true
+
     environment:
-      - DISPLAY=${DISPLAY}  # 将宿主机的显示环境变量传入
-      - QT_X11_NO_MITSHM=1  # 修复一些 Qt GUI 程序的渲染问题
-      # 开启 NVIDIA GPU 加速支持 (需要宿主机装好 nvidia-container-toolkit)
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
-      
+
     volumes:
-      # 核心：挂载 X11 socket，将容器内的 Gazebo 画面转发到宿主机桌面
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      # 将当前目录下的 ros2_ws 文件夹挂载进容器，方便你在宿主机用 JetBrains IDE 写代码
       - ./ros2_ws:/root/ros2_ws:rw
-      
+      - ./scripts:/root/scripts:ro
+      - ./repos:/root/repos:ro
+
     deploy:
       resources:
         reservations:
@@ -28,6 +29,5 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-              
-    # 保持容器后台长驻运行
+
     command: tail -f /dev/null

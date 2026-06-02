@@ -1,0 +1,252 @@
+"""HSV + depth perception → /scene_state (DESIGN.md §5.2)."""
+
+from __future__ import annotations
+
+import math
+from typing import Any
+
+import rclpy
+from cv_bridge import CvBridge
+from geometry_msgs.msg import PointStamped, Pose, PoseStamped
+from pick_place_msgs.srv import TriggerScan
+from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from scene_state_msgs.msg import ObjectPose, SceneState
+from sensor_msgs.msg import CameraInfo, Image
+from tf2_ros import Buffer, TransformException, TransformListener
+
+import tf2_geometry_msgs  # noqa: F401 — registers PointStamped with tf2 buffer
+
+import cv2
+import numpy as np
+
+
+# Tuned for Gazebo ogre rendering (wider S/V than nominal OpenCV defaults).
+LABEL_TO_HSV: dict[str, tuple] = {
+    "red_block": ([0, 80, 50], [15, 255, 255], [165, 80, 50], [180, 255, 255]),
+    "green_block": ([35, 40, 40], [90, 255, 255]),
+    "blue_plate": ([90, 50, 40], [140, 255, 255]),
+}
+
+MATCH_DISTANCE_M = 0.08
+
+
+class PerceptionNode(Node):
+    def __init__(self) -> None:
+        super().__init__("perception_node")
+
+        self.declare_parameter("publish_hz", 5.0)
+        self.declare_parameter("camera_frame", "camera_optical_frame")
+        self.declare_parameter("base_frame", "panda_link0")
+        self.declare_parameter("stale_after_sec", 10.0)
+        self.declare_parameter("min_contour_area", 200.0)
+
+        self._bridge = CvBridge()
+        self._latest_color: Image | None = None
+        self._latest_depth: Image | None = None
+        self._camera_info: CameraInfo | None = None
+        self._objects: dict[str, ObjectPose] = {}
+        self._label_seq: dict[str, int] = {}
+
+        self._tf_buffer = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self)
+
+        self._scene_pub = self.create_publisher(SceneState, "/scene_state", 10)
+        self.create_subscription(Image, "/camera/color/image_raw", self._on_color, qos_profile_sensor_data)
+        self.create_subscription(Image, "/camera/depth/image_raw", self._on_depth, qos_profile_sensor_data)
+        self.create_subscription(CameraInfo, "/camera/color/camera_info", self._on_camera_info, 10)
+        self.create_service(TriggerScan, "/perception/trigger_scan", self._handle_trigger_scan)
+
+        hz = self.get_parameter("publish_hz").value
+        self.create_timer(1.0 / hz, self._publish_scene_state)
+        self.get_logger().info("perception_node ready (HSV + depth + TF)")
+
+    def _on_color(self, msg: Image) -> None:
+        self._latest_color = msg
+
+    def _on_depth(self, msg: Image) -> None:
+        self._latest_depth = msg
+
+    def _on_camera_info(self, msg: CameraInfo) -> None:
+        self._camera_info = msg
+
+    def _handle_trigger_scan(self, _request: TriggerScan.Request, response: TriggerScan.Response) -> TriggerScan.Response:
+        count = self._run_detection()
+        response.success = count >= 0
+        response.message = f"tracked {len(self._objects)} objects"
+        return response
+
+    def _publish_scene_state(self) -> None:
+        if self._latest_color is not None:
+            self._run_detection()
+
+        msg = SceneState()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.objects = list(self._objects.values())
+        self._scene_pub.publish(msg)
+
+    def _run_detection(self) -> int:
+        if self._latest_color is None:
+            return -1
+
+        try:
+            bgr = self._bridge.imgmsg_to_cv2(self._latest_color, desired_encoding="bgr8")
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().warning(f"cv_bridge color failed: {exc}")
+            return -1
+
+        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+        now = self.get_clock().now()
+        min_area = float(self.get_parameter("min_contour_area").value)
+        detections: list[tuple[str, float, float, float, float]] = []
+
+        for label, spec in LABEL_TO_HSV.items():
+            if len(spec) == 4:
+                la, ua, lb, ub = spec
+                mask = cv2.bitwise_or(
+                    cv2.inRange(hsv, np.array(la), np.array(ua)),
+                    cv2.inRange(hsv, np.array(lb), np.array(ub)),
+                )
+            else:
+                lo, hi = spec
+                mask = cv2.inRange(hsv, np.array(lo), np.array(hi))
+
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for contour in contours:
+                if cv2.contourArea(contour) < min_area:
+                    continue
+                moments = cv2.moments(contour)
+                if moments["m00"] == 0:
+                    continue
+                u = int(moments["m10"] / moments["m00"])
+                v = int(moments["m01"] / moments["m00"])
+                depth_m = self._lookup_depth_m(u, v)
+                if depth_m is None or not math.isfinite(depth_m):
+                    continue
+                xyz_cam = self._backproject_camera(u, v, depth_m)
+                if xyz_cam is None:
+                    continue
+                xyz = self._transform_to_base(xyz_cam)
+                if xyz is None:
+                    continue
+                area = cv2.contourArea(contour)
+                confidence = min(0.99, 0.6 + area / 5000.0)
+                detections.append((label, xyz[0], xyz[1], xyz[2], confidence))
+
+        self._update_tracks(detections, now)
+        return len(detections)
+
+    def _update_tracks(self, detections: list[tuple[str, float, float, float, float]], now: rclpy.time.Time) -> None:
+        matched_ids: set[str] = set()
+        base_frame = self.get_parameter("base_frame").value
+
+        for label, x, y, z, confidence in detections:
+            obj_id = self._match_or_create_id(label, x, y, z, matched_ids)
+            matched_ids.add(obj_id)
+
+            obj = self._objects.get(obj_id) or ObjectPose()
+            obj.id = obj_id
+            obj.label = label
+            obj.confidence = float(confidence)
+            obj.last_seen_at = now.to_msg()
+            obj.pose = PoseStamped()
+            obj.pose.header.frame_id = base_frame
+            obj.pose.header.stamp = now.to_msg()
+            obj.pose.pose = Pose()
+            obj.pose.pose.position.x = x
+            obj.pose.pose.position.y = y
+            obj.pose.pose.position.z = z
+            obj.pose.pose.orientation.w = 1.0
+            self._objects[obj_id] = obj
+
+        stale_ns = int(self.get_parameter("stale_after_sec").value * 1e9)
+        expired = [
+            oid for oid, obj in self._objects.items()
+            if oid not in matched_ids
+            and (now - rclpy.time.Time.from_msg(obj.last_seen_at)).nanoseconds > stale_ns
+        ]
+        for oid in expired:
+            del self._objects[oid]
+
+    def _match_or_create_id(self, label: str, x: float, y: float, z: float, taken: set[str]) -> str:
+        best_id = None
+        best_dist = MATCH_DISTANCE_M
+        for oid, obj in self._objects.items():
+            if obj.label != label or oid in taken:
+                continue
+            dx = obj.pose.pose.position.x - x
+            dy = obj.pose.pose.position.y - y
+            dz = obj.pose.pose.position.z - z
+            dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+            if dist < best_dist:
+                best_dist = dist
+                best_id = oid
+        if best_id:
+            return best_id
+
+        self._label_seq[label] = self._label_seq.get(label, 0) + 1
+        return f"{label}_{self._label_seq[label]:02d}"
+
+    def _lookup_depth_m(self, u: int, v: int) -> float | None:
+        if self._latest_depth is None:
+            return None
+        try:
+            depth_img = self._bridge.imgmsg_to_cv2(self._latest_depth)
+        except Exception:  # noqa: BLE001
+            return None
+
+        h, w = depth_img.shape[:2]
+        if not (0 <= u < w and 0 <= v < h):
+            return None
+
+        raw = float(depth_img[v, u])
+        encoding = self._latest_depth.encoding
+        if encoding == "32FC1":
+            return raw if raw > 0.0 else None
+        if encoding in ("16UC1", "mono16"):
+            return raw / 1000.0 if raw > 0 else None
+        return raw if raw > 0.0 else None
+
+    def _backproject_camera(self, u: int, v: int, depth_m: float) -> tuple[float, float, float] | None:
+        if self._camera_info is None:
+            return None
+        fx = self._camera_info.k[0]
+        fy = self._camera_info.k[4]
+        cx = self._camera_info.k[2]
+        cy = self._camera_info.k[5]
+        x = (u - cx) * depth_m / fx
+        y = (v - cy) * depth_m / fy
+        z = depth_m
+        return (x, y, z)
+
+    def _transform_to_base(self, xyz: tuple[float, float, float]) -> tuple[float, float, float] | None:
+        camera_frame = self.get_parameter("camera_frame").value
+        base_frame = self.get_parameter("base_frame").value
+
+        pt = PointStamped()
+        pt.header.frame_id = camera_frame
+        pt.header.stamp = self.get_clock().now().to_msg()
+        pt.point.x, pt.point.y, pt.point.z = xyz
+
+        try:
+            out = self._tf_buffer.transform(
+                pt, base_frame, timeout=rclpy.duration.Duration(seconds=0.5),
+            )
+        except TransformException as exc:
+            self.get_logger().warning(f"TF {camera_frame}->{base_frame}: {exc}")
+            return None
+        return (out.point.x, out.point.y, out.point.z)
+
+
+def main() -> None:
+    rclpy.init()
+    node = PerceptionNode()
+    try:
+        rclpy.spin(node)
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()
