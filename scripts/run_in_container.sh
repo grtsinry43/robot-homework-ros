@@ -52,6 +52,12 @@ case "$CMD" in
   smoke)
     docker compose exec -T ros2-gazebo bash /root/scripts/smoke_pick_place.sh
     ;;
+  demo-mcp)
+    docker compose exec -T ros2-gazebo bash /root/scripts/demo_midterm_mcp.sh "$@"
+    ;;
+  start-mcp)
+    docker compose exec -T ros2-gazebo bash /root/scripts/start_mcp.sh
+    ;;
   shell)
     xhost +local:docker 2>/dev/null || true
     docker compose exec ros2-gazebo bash
@@ -70,6 +76,8 @@ Usage: $0 <command>
   verify-phase1     trigger_scan + /scene_state
   verify-phase2     move_action + servo + executor readiness
   smoke             ros2 action pick/place smoke (stack must be up)
+  demo-mcp [opts]   Mid-term MCP scenarios (see prompts/midterm_demo.md)
+  start-mcp         Hint: run MCP via config/mcp_client.docker.json in Cursor
   shell             Interactive bash in container
 
 Examples:

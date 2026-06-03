@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "panda-pick-place": {
+      "command": "docker",
+      "args": [
+        "compose",
+        "-f",
+        "/home/grtsinry43/robot-homework-ros/docker-compose.yml",
+        "exec",
+        "-T",
+        "ros2-gazebo",
+        "bash",
+        "-lc",
+        "source /opt/ros/humble/setup.bash && source /root/ros2_ws/install/setup.bash && python3 /root/ros2_ws/mcp_pick_place_brain.py"
+      ],
+      "env": {
+        "RCUTILS_LOGGING_USE_STDERR": "1"
+      }
+    }
+  }
+}

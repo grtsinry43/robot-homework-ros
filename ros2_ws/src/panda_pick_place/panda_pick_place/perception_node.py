@@ -26,6 +26,7 @@ LABEL_TO_HSV: dict[str, tuple] = {
     "red_block": ([0, 40, 25], [30, 255, 255], [150, 40, 25], [180, 255, 255]),
     "green_block": ([35, 25, 25], [95, 255, 255]),
     "blue_plate": ([85, 30, 25], [145, 255, 255]),
+    "yellow_wall": ([18, 60, 60], [40, 255, 255]),
 }
 
 MATCH_DISTANCE_M = 0.08
@@ -35,6 +36,7 @@ SIM_LAYOUT_POSES: dict[str, tuple[float, float, float]] = {
     "red_block": (0.35, 0.05, 0.06),
     "green_block": (0.42, -0.12, 0.06),
     "blue_plate": (0.55, -0.05, 0.055),
+    "yellow_wall": (0.45, 0.0, 0.12),
 }
 
 

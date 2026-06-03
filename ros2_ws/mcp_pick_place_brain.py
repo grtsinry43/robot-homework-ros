@@ -38,9 +38,10 @@ from panda_pick_place.offset_resolver import VALID_OFFSETS  # noqa: E402
 from panda_pick_place.workspace_envelope import DEFAULT_ENVELOPE  # noqa: E402
 from panda_pick_place.gripper_helper import GripperHelper  # noqa: E402
 from panda_pick_place.moveit_helper import MoveItHelper  # noqa: E402
+from panda_pick_place.mcp_validation import validate_pick_target, validate_place_target  # noqa: E402
 
 
-ACTION_TIMEOUT_SEC = 60.0
+ACTION_TIMEOUT_SEC = 180.0
 
 
 class PickPlaceMcpBridge(Node):
@@ -97,6 +98,11 @@ class PickPlaceMcpBridge(Node):
         if not self._pick_client.server_is_ready():
             return failed(ErrorCode.INTERNAL_ERROR, "pick_place 执行器未就绪")
 
+        self._call_scan()
+        pre = validate_pick_target(self._latest_scene, object_id)
+        if pre is not None:
+            return pre
+
         goal = PickObject.Goal()
         goal.object_id = object_id
         send_future = self._pick_client.send_goal_async(goal)
@@ -127,6 +133,17 @@ class PickPlaceMcpBridge(Node):
 
         if not self._place_client.server_is_ready():
             return failed(ErrorCode.INTERNAL_ERROR, "pick_place 执行器未就绪")
+
+        if target_id == "outside_table":
+            return failed(
+                ErrorCode.OUT_OF_REACH,
+                "放置目标超出安全工作空间（演示：桌子外面）",
+            )
+
+        self._call_scan()
+        pre = validate_place_target(self._latest_scene, target_id, offset)
+        if pre is not None:
+            return pre
 
         goal = PlaceAt.Goal()
         goal.target_id = target_id
