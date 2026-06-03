@@ -20,6 +20,7 @@ echo "==> Gazebo Panda + desk starting (50s)"
 sleep 50
 wait_for_topic /camera/color/image_raw 60 || echo "WARN: camera topics missing"
 wait_for_arm_controller 120
+wait_for_moveit_joint_state 30
 
 # world→panda_link0 已由 URDF 固定关节 + robot_state_publisher 发布，无需额外 static TF
 

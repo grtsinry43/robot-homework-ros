@@ -171,6 +171,12 @@ def generate_launch_description():
         output="screen",
     )
 
+    gripper_joint_state_merger = Node(
+        package="panda_sim_bringup",
+        executable="gripper_joint_state_merger.py",
+        output="screen",
+    )
+
     return LaunchDescription([
         use_gui_arg,
         robot_x_arg,
@@ -189,4 +195,5 @@ def generate_launch_description():
         ),
         camera_static_tf,
         ros_gz_bridge,
+        gripper_joint_state_merger,
     ])

@@ -37,6 +37,9 @@
   <gazebo>
     <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
       <parameters>$(find panda_sim_bringup)/config/panda_gz_ros2_control.yaml</parameters>
+      <ros>
+        <remapping>/joint_states:=/joint_states_hw</remapping>
+      </ros>
     </plugin>
   </gazebo>
 

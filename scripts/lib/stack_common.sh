@@ -119,3 +119,11 @@ wait_for_arm_controller() {
     return 1
   fi
 }
+
+wait_for_moveit_joint_state() {
+  local timeout="${1:-30}"
+  echo "==> wait /joint_states with gripper joints (${timeout}s)"
+  timeout "$timeout" bash -c "source \"$ROS_SETUP\"; [[ -f \"$WS_SETUP\" ]] && source \"$WS_SETUP\";
+    until ros2 topic echo /joint_states --once 2>/dev/null | grep -q panda_finger_joint1; do sleep 0.5; done
+    until ros2 topic echo /joint_states --once 2>/dev/null | grep -q panda_finger_joint2; do sleep 0.5; done"
+}
