@@ -38,6 +38,27 @@ docker compose exec ros2-gazebo bash
 source /root/ros2_ws/install/setup.bash
 ```
 
+## 快速启动（WSL/本机 ROS 2）
+
+在 Ubuntu 22.04 + ROS 2 Humble 环境中：
+
+```bash
+cd ~/robot-homework-ros
+./scripts/setup_vendor.sh
+./scripts/bootstrap_workspace.sh
+
+mkdir -p /tmp/robot_homework_ros/logs
+pgrep -f 'Xvfb :99' >/dev/null || \
+  Xvfb :99 -screen 0 1280x720x24 >/tmp/robot_homework_ros/logs/xvfb.log 2>&1 &
+
+DISPLAY=:99 bash scripts/start_phase01.sh
+bash scripts/verify_phase0.sh
+bash scripts/verify_perception.sh
+bash scripts/stop_stack.sh
+```
+
+`Xvfb` is only needed when Gazebo cannot open the WSL/desktop display but still needs a render target for camera sensors.
+
 ## 当前范围说明
 
 - **已有**：桌面仿真、相机、HSV 感知、`/scene_state`、内环/MCP 代码、启动与验证脚本  

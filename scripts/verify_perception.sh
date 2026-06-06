@@ -3,8 +3,10 @@
 # Prerequisite: gazebo_desk_only + static world->panda_link0 + pick_place.launch.py
 set -eo pipefail
 
-source /opt/ros/humble/setup.bash
-[[ -f /root/ros2_ws/install/setup.bash ]] && source /root/ros2_ws/install/setup.bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/stack_common.sh
+source "$ROOT/scripts/lib/stack_common.sh"
+source_ros
 
 echo "==> wait for perception service"
 for _ in $(seq 1 20); do

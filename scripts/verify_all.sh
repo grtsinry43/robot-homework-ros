@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full verification of implemented stack (run inside container).
+# Full verification of implemented stack.
 set -eo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -7,36 +7,20 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib/stack_common.sh"
 source_ros
 
-echo "==> Starting Gazebo desk (DISPLAY=$DISPLAY)"
-configure_gl_env
-ros2 launch panda_sim_bringup gazebo_desk_only.launch.py > /tmp/verify_gz.log 2>&1 &
-GZ_PID=$!
-sleep 18
-
 cleanup() {
-  kill "$GZ_PID" 2>/dev/null || true
-  pkill -f perception_node 2>/dev/null || true
-  pkill -f static_transform_publisher 2>/dev/null || true
+  bash "$ROOT/scripts/stop_stack.sh" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
-bash /root/scripts/verify_phase0.sh
+echo "==> Starting Phase 0+1 stack"
+bash "$ROOT/scripts/start_phase01.sh"
 
-echo "==> Static TF + perception"
-ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 world panda_link0 &
-TF_PID=$!
-sleep 1
-ros2 run panda_pick_place perception_node \
-  --ros-args --params-file /root/ros2_ws/install/panda_pick_place/share/panda_pick_place/config/pick_place_params.yaml &
-PERC_PID=$!
-sleep 3
+bash "$ROOT/scripts/verify_phase0.sh"
+bash "$ROOT/scripts/verify_perception.sh"
 
-bash /root/scripts/verify_perception.sh
-kill "$PERC_PID" "$TF_PID" 2>/dev/null || true
-wait "$PERC_PID" 2>/dev/null || true
-
-echo "==> executor_node import/start"
-timeout 3 ros2 run panda_pick_place executor_node \
-  --ros-args --params-file /root/ros2_ws/install/panda_pick_place/share/panda_pick_place/config/pick_place_params.yaml 2>&1 | grep -q "pick_place_executor ready" && echo "[PASS] executor_node starts"
+echo "==> executor/action checks"
+ros2 node list | grep -q pick_place_executor && echo "[PASS] pick_place_executor node"
+ros2 action list | grep -q /pick_place/pick_object && echo "[PASS] pick_object action"
+ros2 action list | grep -q /pick_place/place_at && echo "[PASS] place_at action"
 
 echo "==> ALL CHECKS DONE"

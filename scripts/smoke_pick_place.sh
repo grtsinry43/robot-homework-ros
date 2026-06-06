@@ -3,8 +3,10 @@
 # Prerequisite: start_phase01.sh or start_phase2_rviz.sh, workspace sourced.
 set -eo pipefail
 
-source /opt/ros/humble/setup.bash
-[[ -f /root/ros2_ws/install/setup.bash ]] && source /root/ros2_ws/install/setup.bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/stack_common.sh
+source "$ROOT/scripts/lib/stack_common.sh"
+source_ros
 
 echo "==> Waiting for /scene_state..."
 timeout 15 bash -c 'until ros2 topic list | grep -q /scene_state; do sleep 0.5; done'

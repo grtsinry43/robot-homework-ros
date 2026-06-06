@@ -2,8 +2,10 @@
 # Verify single Gazebo scene: Panda in sim + camera + arm controller active.
 set -eo pipefail
 
-source /opt/ros/humble/setup.bash
-[[ -f /root/ros2_ws/install/setup.bash ]] && source /root/ros2_ws/install/setup.bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/stack_common.sh
+source "$ROOT/scripts/lib/stack_common.sh"
+source_ros
 
 PASS=0
 FAIL=0
