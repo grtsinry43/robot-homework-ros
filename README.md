@@ -25,6 +25,7 @@ docker compose build && docker compose up -d
 
 ./scripts/run_in_container.sh start-gazebo-desk   # 仅 Gazebo 桌面（无机械臂）
 ./scripts/run_in_container.sh start-phase01       # 桌面 + 感知
+PHASE01_USE_GUI=false ./scripts/run_in_container.sh start-phase01  # WSLg GUI 崩溃时
 ./scripts/run_in_container.sh start-phase2-rviz   # + MoveIt RViz（仍无 Gazebo 臂）
 ./scripts/run_in_container.sh stop
 ```
@@ -38,6 +39,8 @@ docker compose exec ros2-gazebo bash
 source /root/ros2_ws/install/setup.bash
 ```
 
+Docker 镜像会根据 `requirements.txt` 安装 MCP / demo scripts 需要的 Python 依赖。
+
 ## 快速启动（WSL/本机 ROS 2）
 
 在 Ubuntu 22.04 + ROS 2 Humble 环境中：
@@ -46,18 +49,16 @@ source /root/ros2_ws/install/setup.bash
 cd ~/robot-homework-ros
 ./scripts/setup_vendor.sh
 ./scripts/bootstrap_workspace.sh
+python3 -m pip install -r requirements.txt   # MCP / demo scripts
 
-mkdir -p /tmp/robot_homework_ros/logs
-pgrep -f 'Xvfb :99' >/dev/null || \
-  Xvfb :99 -screen 0 1280x720x24 >/tmp/robot_homework_ros/logs/xvfb.log 2>&1 &
-
-DISPLAY=:99 bash scripts/start_phase01.sh
+# WSLg: keep DISPLAY for Gazebo RGB-D rendering, but skip the Gazebo GUI client.
+DISPLAY=:0 PHASE01_USE_GUI=false bash scripts/start_phase01.sh
 bash scripts/verify_phase0.sh
 bash scripts/verify_perception.sh
 bash scripts/stop_stack.sh
 ```
 
-`Xvfb` is only needed when Gazebo cannot open the WSL/desktop display but still needs a render target for camera sensors.
+`PHASE01_USE_GUI=auto|true|false` controls only the Gazebo GUI client. RGB-D sensors still need a working `DISPLAY`; on WSLg, `DISPLAY=:0 PHASE01_USE_GUI=false` avoids the observed Gazebo GUI / OGRE crash while keeping camera rendering alive.
 
 ## 当前范围说明
 
