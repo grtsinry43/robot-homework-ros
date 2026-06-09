@@ -80,4 +80,16 @@ python3 scripts/validate_action_library.py
 
 当前 MCP server 也暴露 `get_action_library()`，客户端可以在任务开始前查询机器人能力目录。
 
+## 运行时观察：Robot Context
+
+MCP server 暴露 `get_robot_context()` 作为 ROS-LLM 风格的 observation manager。它不触发扫描、不移动机械臂，只汇总当前运行时状态：
+
+- `/scene_state` 是否存在、是否新鲜、当前可见 object ids
+- perception service、pick/place action、abort service、MoveIt、gripper readiness
+- `panda_link0` 工作空间边界
+- MCP 最近一次失败错误与建议下一步
+- 最近 MCP 工具事件（`recent_events`），作为后续 task feedback / retry 策略的短期历史
+
+协作者新增底层能力时，除了更新 atomic action library，也应考虑该能力是否需要纳入 `get_robot_context()` 的 readiness 或 observation 字段。
+
 vendor：`ros2_ws/src/vendor/franka_ros2` 由 `scripts/setup_vendor.sh` 拉取，不纳入 git。

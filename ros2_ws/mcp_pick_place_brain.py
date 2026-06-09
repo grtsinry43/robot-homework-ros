@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+import json
 
 os.environ["RCUTILS_LOGGING_USE_STDERR"] = "1"
 
@@ -40,9 +41,11 @@ from panda_pick_place.workspace_envelope import DEFAULT_ENVELOPE  # noqa: E402
 from panda_pick_place.gripper_helper import GripperHelper  # noqa: E402
 from panda_pick_place.moveit_helper import MoveItHelper  # noqa: E402
 from panda_pick_place.mcp_validation import validate_pick_target, validate_place_target  # noqa: E402
+from panda_pick_place.robot_context import RobotContextBuilder  # noqa: E402
 
 
 ACTION_TIMEOUT_SEC = 180.0
+MAX_RECENT_EVENTS = 10
 
 
 class PickPlaceMcpBridge(Node):
@@ -50,6 +53,9 @@ class PickPlaceMcpBridge(Node):
         super().__init__("mcp_pick_place_bridge")
 
         self._latest_scene: SceneState | None = None
+        self._active_task: str | None = None
+        self._last_error: dict | None = None
+        self._recent_events: list[dict] = []
         self.create_subscription(SceneState, "/scene_state", self._on_scene, 10)
 
         self._scan_client = self.create_client(TriggerScan, "/perception/trigger_scan")
@@ -58,6 +64,7 @@ class PickPlaceMcpBridge(Node):
         self._place_client = ActionClient(self, PlaceAt, "/pick_place/place_at")
         self._moveit = MoveItHelper(self)
         self._gripper = GripperHelper(self)
+        self._context = RobotContextBuilder(self)
 
         self.get_logger().info("MCP pick-place bridge ready")
 
@@ -82,7 +89,10 @@ class PickPlaceMcpBridge(Node):
     def scan_scene(self) -> str:
         refreshed = self._call_scan()
         if not refreshed and self._latest_scene is None:
-            return failed(ErrorCode.INTERNAL_ERROR, "感知节点未就绪，请先启动 pick_place.launch.py")
+            return self._record_tool_result(
+                "scan_scene",
+                failed(ErrorCode.INTERNAL_ERROR, "感知节点未就绪，请先启动 pick_place.launch.py"),
+            )
 
         objects = []
         if self._latest_scene:
@@ -93,89 +103,136 @@ class PickPlaceMcpBridge(Node):
                     "confidence": round(float(obj.confidence), 2),
                 })
 
-        return ok(objects=objects, scanned_at=utc_now_iso())
+        return self._record_tool_result("scan_scene", ok(objects=objects, scanned_at=utc_now_iso()))
 
     def pick_object(self, object_id: str) -> str:
         if not self._pick_client.server_is_ready():
-            return failed(ErrorCode.INTERNAL_ERROR, "pick_place 执行器未就绪")
+            return self._record_tool_result(
+                "pick_object",
+                failed(ErrorCode.INTERNAL_ERROR, "pick_place 执行器未就绪"),
+            )
 
         self._call_scan()
         pre = validate_pick_target(self._latest_scene, object_id)
         if pre is not None:
-            return pre
+            return self._record_tool_result("pick_object", pre)
 
         goal = PickObject.Goal()
         goal.object_id = object_id
-        send_future = self._pick_client.send_goal_async(goal)
-        goal_handle = self._wait_future(send_future, timeout_sec=5.0)
-        if goal_handle is None or not goal_handle.accepted:
-            return failed(ErrorCode.INTERNAL_ERROR, "无法提交 pick_object 目标")
+        self._active_task = f"pick_object({object_id})"
+        try:
+            send_future = self._pick_client.send_goal_async(goal)
+            goal_handle = self._wait_future(send_future, timeout_sec=5.0)
+            if goal_handle is None or not goal_handle.accepted:
+                return self._record_tool_result(
+                    "pick_object",
+                    failed(ErrorCode.INTERNAL_ERROR, "无法提交 pick_object 目标"),
+                )
 
-        result_future = goal_handle.get_result_async()
-        wrapped = self._wait_future(result_future, timeout_sec=ACTION_TIMEOUT_SEC)
-        if wrapped is None:
-            return failed(ErrorCode.SERVO_TIMEOUT, f"pick_object({object_id}) 超时")
+            result_future = goal_handle.get_result_async()
+            wrapped = self._wait_future(result_future, timeout_sec=ACTION_TIMEOUT_SEC)
+            if wrapped is None:
+                return self._record_tool_result(
+                    "pick_object",
+                    failed(ErrorCode.SERVO_TIMEOUT, f"pick_object({object_id}) 超时"),
+                )
 
-        result = wrapped.result
-        if result.success:
-            return ok(id=object_id)
-        return failed(
-            result.code or ErrorCode.INTERNAL_ERROR.value,
-            result.reason or "pick 失败",
-            result.suggestion or None,
-        )
+            result = wrapped.result
+            if result.success:
+                return self._record_tool_result("pick_object", ok(id=object_id))
+            return self._record_tool_result(
+                "pick_object",
+                failed(
+                    result.code or ErrorCode.INTERNAL_ERROR.value,
+                    result.reason or "pick 失败",
+                    result.suggestion or None,
+                ),
+            )
+        finally:
+            self._active_task = None
 
     def place_at(self, target_id: str, offset: str) -> str:
         if offset not in VALID_OFFSETS:
-            return failed(
-                ErrorCode.INTERNAL_ERROR,
-                f"offset 必须是 {sorted(VALID_OFFSETS)} 之一",
+            return self._record_tool_result(
+                "place_at",
+                failed(
+                    ErrorCode.INTERNAL_ERROR,
+                    f"offset 必须是 {sorted(VALID_OFFSETS)} 之一",
+                ),
             )
 
         if not self._place_client.server_is_ready():
-            return failed(ErrorCode.INTERNAL_ERROR, "pick_place 执行器未就绪")
+            return self._record_tool_result(
+                "place_at",
+                failed(ErrorCode.INTERNAL_ERROR, "pick_place 执行器未就绪"),
+            )
 
         if target_id == "outside_table":
-            return failed(
-                ErrorCode.OUT_OF_REACH,
-                "放置目标超出安全工作空间（演示：桌子外面）",
+            return self._record_tool_result(
+                "place_at",
+                failed(
+                    ErrorCode.OUT_OF_REACH,
+                    "放置目标超出安全工作空间（演示：桌子外面）",
+                ),
             )
 
         self._call_scan()
         pre = validate_place_target(self._latest_scene, target_id, offset)
         if pre is not None:
-            return pre
+            return self._record_tool_result("place_at", pre)
 
         goal = PlaceAt.Goal()
         goal.target_id = target_id
         goal.offset = offset
-        send_future = self._place_client.send_goal_async(goal)
-        goal_handle = self._wait_future(send_future, timeout_sec=5.0)
-        if goal_handle is None or not goal_handle.accepted:
-            return failed(ErrorCode.INTERNAL_ERROR, "无法提交 place_at 目标")
+        self._active_task = f"place_at({target_id}, {offset})"
+        try:
+            send_future = self._place_client.send_goal_async(goal)
+            goal_handle = self._wait_future(send_future, timeout_sec=5.0)
+            if goal_handle is None or not goal_handle.accepted:
+                return self._record_tool_result(
+                    "place_at",
+                    failed(ErrorCode.INTERNAL_ERROR, "无法提交 place_at 目标"),
+                )
 
-        result_future = goal_handle.get_result_async()
-        wrapped = self._wait_future(result_future, timeout_sec=ACTION_TIMEOUT_SEC)
-        if wrapped is None:
-            return failed(ErrorCode.SERVO_TIMEOUT, f"place_at({target_id}, {offset}) 超时")
+            result_future = goal_handle.get_result_async()
+            wrapped = self._wait_future(result_future, timeout_sec=ACTION_TIMEOUT_SEC)
+            if wrapped is None:
+                return self._record_tool_result(
+                    "place_at",
+                    failed(ErrorCode.SERVO_TIMEOUT, f"place_at({target_id}, {offset}) 超时"),
+                )
 
-        result = wrapped.result
-        if result.success:
-            return ok(target_id=target_id, offset=offset)
-        return failed(
-            result.code or ErrorCode.INTERNAL_ERROR.value,
-            result.reason or "place 失败",
-            result.suggestion or None,
-        )
+            result = wrapped.result
+            if result.success:
+                return self._record_tool_result("place_at", ok(target_id=target_id, offset=offset))
+            return self._record_tool_result(
+                "place_at",
+                failed(
+                    result.code or ErrorCode.INTERNAL_ERROR.value,
+                    result.reason or "place 失败",
+                    result.suggestion or None,
+                ),
+            )
+        finally:
+            self._active_task = None
 
     def abort_current_task(self) -> str:
         if not self._abort_client.wait_for_service(timeout_sec=0.5):
-            return failed(ErrorCode.INTERNAL_ERROR, "abort 服务不可用")
+            return self._record_tool_result(
+                "abort_current_task",
+                failed(ErrorCode.INTERNAL_ERROR, "abort 服务不可用"),
+            )
         future = self._abort_client.call_async(AbortTask.Request())
         result = self._wait_future(future, timeout_sec=2.0)
         if result is None:
-            return failed(ErrorCode.INTERNAL_ERROR, "abort 调用超时")
-        return aborted(result.what_was_aborted or "unknown")
+            return self._record_tool_result(
+                "abort_current_task",
+                failed(ErrorCode.INTERNAL_ERROR, "abort 调用超时"),
+            )
+        return self._record_tool_result(
+            "abort_current_task",
+            aborted(result.what_was_aborted or "unknown"),
+        )
 
     def set_gripper(self, state: str) -> str:
         if state not in {"open", "close"}:
@@ -200,6 +257,55 @@ class PickPlaceMcpBridge(Node):
             return ok(x=x, y=y, z=z)
         return failed(code, reason)
 
+    def get_robot_context(self) -> str:
+        context = self._context.build(
+            scene=self._latest_scene,
+            readiness={
+                "perception_service": self._scan_client.wait_for_service(timeout_sec=0.0),
+                "abort_service": self._abort_client.wait_for_service(timeout_sec=0.0),
+                "pick_action": self._pick_client.server_is_ready(),
+                "place_action": self._place_client.server_is_ready(),
+                "moveit_action": self._moveit.server_ready(),
+                "gripper_actions": self._gripper.ready(),
+            },
+            active_task=self._active_task,
+            last_error=self._last_error,
+            recent_events=list(self._recent_events),
+        )
+        return ok(context=context)
+
+    def _record_tool_result(self, tool: str, result_json: str) -> str:
+        try:
+            payload = json.loads(result_json)
+        except json.JSONDecodeError:
+            return result_json
+
+        event = {
+            "tool": tool,
+            "status": payload.get("status", "unknown"),
+            "recorded_at": utc_now_iso(),
+        }
+        if "code" in payload:
+            event["code"] = payload.get("code")
+        if "reason" in payload:
+            event["reason"] = payload.get("reason")
+        if "suggestion" in payload:
+            event["suggestion"] = payload.get("suggestion")
+        if "what" in payload:
+            event["what"] = payload.get("what")
+        self._recent_events.append(event)
+        self._recent_events = self._recent_events[-MAX_RECENT_EVENTS:]
+
+        if payload.get("status") == "failed":
+            self._last_error = {
+                "tool": tool,
+                "code": payload.get("code"),
+                "reason": payload.get("reason"),
+                "suggestion": payload.get("suggestion"),
+                "recorded_at": utc_now_iso(),
+            }
+        return result_json
+
 
 mcp = FastMCP("Panda_PickPlace")
 ros_node: PickPlaceMcpBridge | None = None
@@ -218,6 +324,14 @@ def get_action_library() -> str:
         actions=library["actions"],
         rendered=render_action_library(library),
     )
+
+
+@mcp.tool()
+def get_robot_context() -> str:
+    """返回当前场景、依赖 readiness、工作空间和建议下一步。"""
+    if ros_node is None:
+        return failed(ErrorCode.INTERNAL_ERROR, "ROS 节点未初始化")
+    return ros_node.get_robot_context()
 
 
 @mcp.tool()

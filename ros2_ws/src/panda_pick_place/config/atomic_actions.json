@@ -5,6 +5,51 @@
   "coordinate_frame": "panda_link0",
   "actions": [
     {
+      "name": "get_robot_context",
+      "kind": "mcp_tool",
+      "status": "implemented",
+      "description": "Return a read-only runtime observation summary for the MCP/LLM outer loop, including scene freshness, dependency readiness, workspace envelope, recent error, recent events, and recommended next step.",
+      "entrypoints": {
+        "mcp_tool": "get_robot_context",
+        "ros_topic_input": "/scene_state",
+        "ros_service_checks": [
+          "/perception/trigger_scan",
+          "/pick_place/abort"
+        ],
+        "ros_action_checks": [
+          "/pick_place/pick_object",
+          "/pick_place/place_at",
+          "move_action",
+          "/franka_gripper/move",
+          "/franka_gripper/grasp"
+        ]
+      },
+      "inputs": {},
+      "outputs": {
+        "context": {
+          "type": "object",
+          "description": "Scene summary, readiness groups, executor observation, workspace envelope, last_error, recent_events, and recommended_next_step."
+        }
+      },
+      "preconditions": [
+        "MCP server has initialized its ROS bridge node"
+      ],
+      "side_effects": [
+        "None; this action does not trigger perception refresh or robot motion"
+      ],
+      "errors": [
+        "INTERNAL_ERROR"
+      ],
+      "safety": [
+        "Read-only observation action",
+        "Does not expose raw coordinates; reports object ids, labels, confidence, freshness, and workspace inclusion"
+      ],
+      "implementation_refs": [
+        "ros2_ws/mcp_pick_place_brain.py",
+        "ros2_ws/src/panda_pick_place/panda_pick_place/robot_context.py"
+      ]
+    },
+    {
       "name": "scan_scene",
       "kind": "mcp_tool",
       "status": "phase01_verified",
