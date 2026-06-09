@@ -1,0 +1,3 @@
+# Python deps for standalone MCP/demo scripts.
+# ROS package deps are still installed through rosdep / apt.
+mcp

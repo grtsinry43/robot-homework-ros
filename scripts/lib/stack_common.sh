@@ -1,8 +1,15 @@
 # Shared helpers for stack start/stop scripts (source, do not execute).
 set -eo pipefail
 
+_STACK_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_STACK_REPO_ROOT="$(cd "$_STACK_COMMON_DIR/../.." && pwd)"
+_DEFAULT_WS_SETUP="$_STACK_REPO_ROOT/ros2_ws/install/setup.bash"
+if [[ ! -f "$_DEFAULT_WS_SETUP" && -f /root/ros2_ws/install/setup.bash ]]; then
+  _DEFAULT_WS_SETUP="/root/ros2_ws/install/setup.bash"
+fi
+
 export ROS_SETUP="${ROS_SETUP:-/opt/ros/humble/setup.bash}"
-export WS_SETUP="${WS_SETUP:-/root/ros2_ws/install/setup.bash}"
+export WS_SETUP="${WS_SETUP:-$_DEFAULT_WS_SETUP}"
 export PID_DIR="${PID_DIR:-/tmp/robot_homework_ros}"
 export LOG_DIR="${LOG_DIR:-/tmp/robot_homework_ros/logs}"
 

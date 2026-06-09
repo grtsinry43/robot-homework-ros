@@ -22,10 +22,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-xacro \
     ros-humble-cv-bridge \
     python3-opencv \
+    python3-pip \
     python3-yaml \
     git \
     wget \
     && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt /tmp/robot-homework-ros-requirements.txt
+RUN python3 -m pip install --no-cache-dir -r /tmp/robot-homework-ros-requirements.txt
 
 WORKDIR /root/ros2_ws
 

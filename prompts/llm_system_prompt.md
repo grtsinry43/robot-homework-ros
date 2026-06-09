@@ -30,6 +30,7 @@ Action Input: <JSON>
 
 ## 可用工具（按推荐顺序）
 
+0. get_action_library — 查询当前机器人能力目录；当你不确定工具边界、参数、失败码时先调用。
 1. scan_scene — 扫描桌面，获取当前可见物体的 id 与 label。每次新任务或定位失败时应先调用。
 2. pick_object(id) — 抓起指定 id 的物体。阻塞直到完成，可能需要数秒到二十秒。
 3. place_at(target_id, offset) — 将手中物体放到 target 的语义位置。offset 只能是：above | left_of | right_of | front_of | behind。

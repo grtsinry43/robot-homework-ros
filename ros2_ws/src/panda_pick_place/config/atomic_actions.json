@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "library_name": "panda_pick_place_atomic_actions",
+  "description": "Explicit capability contract for the Panda tabletop pick-and-place system. This file is the first place collaborators should update when adding, renaming, or changing robot-facing actions.",
+  "coordinate_frame": "panda_link0",
+  "actions": [
+    {
+      "name": "scan_scene",
+      "kind": "mcp_tool",
+      "status": "phase01_verified",
+      "description": "Trigger one perception refresh and return the currently visible tabletop object ids, labels, and confidences.",
+      "entrypoints": {
+        "mcp_tool": "scan_scene",
+        "ros_service": "/perception/trigger_scan",
+        "ros_topic_output": "/scene_state"
+      },
+      "inputs": {},
+      "outputs": {
+        "objects": {
+          "type": "array",
+          "description": "Visible objects with id, label, and confidence. Coordinates stay inside ROS and are not exposed to the LLM tool output."
+        },
+        "scanned_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "preconditions": [
+        "Gazebo desk camera topics are publishing",
+        "perception_node is running",
+        "/perception/trigger_scan service is available"
+      ],
+      "side_effects": [
+        "Refreshes the perception blackboard used by later pick/place actions"
+      ],
+      "errors": [
+        "INTERNAL_ERROR"
+      ],
+      "safety": [
+        "Read-only with respect to robot motion",
+        "Does not expose raw coordinates to the LLM-facing tool response"
+      ],
+      "implementation_refs": [
+        "ros2_ws/mcp_pick_place_brain.py",
+        "ros2_ws/src/panda_pick_place/panda_pick_place/perception_node.py"
+      ]
+    },
+    {
+      "name": "pick_object",
+      "kind": "mcp_tool",
+      "status": "implemented_phase2_partial",
+      "description": "Pick up a visible object by semantic object id using MoveIt macro motion, optional visual servoing, and the Franka gripper action interface.",
+      "entrypoints": {
+        "mcp_tool": "pick_object",
+        "ros_action": "/pick_place/pick_object"
+      },
+      "inputs": {
+        "id": {
+          "type": "string",
+          "required": true,
+          "description": "Object id from scan_scene, for example blue_plate_01."
+        }
+      },
+      "outputs": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "failed"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "description": "The requested object id when the action succeeds."
+        }
+      },
+      "preconditions": [
+        "scan_scene has recently observed the object id",
+        "Object pose is fresh in /scene_state",
+        "Object approach pose is inside the workspace envelope",
+        "MoveIt move_action is available",
+        "Franka gripper actions are available or allow_gripper_skip is explicitly enabled for demo mode"
+      ],
+      "side_effects": [
+        "Moves the arm",
+        "May start/stop moveit_servo",
+        "May open and close the gripper",
+        "Updates executor held-object bookkeeping on success"
+      ],
+      "errors": [
+        "UNKNOWN_OBJECT_ID",
+        "OBJECT_NOT_VISIBLE",
+        "OUT_OF_REACH",
+        "MOTION_PLANNING_FAILED",
+        "GRASP_PLANNING_FAILED",
+        "GRIPPER_SLIPPED",
+        "SERVO_TIMEOUT",
+        "SERVO_ABORTED",
+        "INTERNAL_ERROR"
+      ],
+      "safety": [
+        "Validates target against the workspace envelope before motion",
+        "Rejects concurrent pick/place goals",
+        "Supports abort_current_task while servoing"
+      ],
+      "implementation_refs": [
+        "ros2_ws/mcp_pick_place_brain.py",
+        "ros2_ws/src/panda_pick_place/panda_pick_place/executor_node.py",
+        "ros2_ws/src/panda_pick_place/panda_pick_place/mcp_validation.py"
+      ]
+    },
+    {
+      "name": "place_at",
+      "kind": "mcp_tool",
+      "status": "implemented_phase2_partial",
+      "description": "Place the currently held object at a semantic offset relative to a visible target object.",
+      "entrypoints": {
+        "mcp_tool": "place_at",
+        "ros_action": "/pick_place/place_at"
+      },
+      "inputs": {
+        "target_id": {
+          "type": "string",
+          "required": true,
+          "description": "Target object id from scan_scene, for example blue_plate_01."
+        },
+        "offset": {
+          "type": "string",
+          "required": true,
+          "enum": [
+            "above",
+            "left_of",
+            "right_of",
+            "front_of",
+            "behind"
+          ],
+          "description": "Semantic placement offset resolved in panda_link0."
+        }
+      },
+      "outputs": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "failed"
+          ]
+        },
+        "target_id": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "string"
+        }
+      },
+      "preconditions": [
+        "A pick_object action has succeeded or the user accepts demo-mode gripper skipping",
+        "scan_scene has recently observed the target id",
+        "Resolved placement pose is inside the workspace envelope",
+        "MoveIt move_action is available"
+      ],
+      "side_effects": [
+        "Moves the arm",
+        "May open the gripper",
+        "Clears executor held-object bookkeeping on success"
+      ],
+      "errors": [
+        "UNKNOWN_OBJECT_ID",
+        "OBJECT_NOT_VISIBLE",
+        "OUT_OF_REACH",
+        "MOTION_PLANNING_FAILED",
+        "GRASP_PLANNING_FAILED",
+        "SERVO_TIMEOUT",
+        "SERVO_ABORTED",
+        "INTERNAL_ERROR"
+      ],
+      "safety": [
+        "Validates offset against the supported semantic offset set",
+        "Validates resolved target against the workspace envelope",
+        "Rejects concurrent pick/place goals"
+      ],
+      "implementation_refs": [
+        "ros2_ws/mcp_pick_place_brain.py",
+        "ros2_ws/src/panda_pick_place/panda_pick_place/executor_node.py",
+        "ros2_ws/src/panda_pick_place/panda_pick_place/offset_resolver.py",
+        "ros2_ws/src/panda_pick_place/panda_pick_place/mcp_validation.py"
+      ]
+    },
+    {
+      "name": "abort_current_task",
+      "kind": "mcp_tool",
+      "status": "implemented",
+      "description": "Request preemption of the currently running pick/place task and stop active servo motion.",
+      "entrypoints": {
+        "mcp_tool": "abort_current_task",
+        "ros_service": "/pick_place/abort"
+      },
+      "inputs": {},
+      "outputs": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "aborted",
+            "failed"
+          ]
+        },
+        "what": {
+          "type": "string",
+          "description": "The task name reported by the executor, or idle."
+        }
+      },
+      "preconditions": [
+        "pick_place_executor is running",
+        "/pick_place/abort service is available"
+      ],
+      "side_effects": [
+        "Sets the executor abort flag",
+        "Publishes zero twist and stops moveit_servo if it was active"
+      ],
+      "errors": [
+        "INTERNAL_ERROR"
+      ],
+      "safety": [
+        "Should be called immediately when the user says stop, cancel, or abort",
+        "Does not start new arm motion"
+      ],
+      "implementation_refs": [
+        "ros2_ws/mcp_pick_place_brain.py",
+        "ros2_ws/src/panda_pick_place/panda_pick_place/executor_node.py"
+      ]
+    }
+  ]
+}

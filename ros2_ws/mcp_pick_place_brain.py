@@ -34,6 +34,7 @@ from panda_pick_place.errors import (  # noqa: E402
     ok,
     utc_now_iso,
 )
+from panda_pick_place.action_library import load_action_library, render_action_library  # noqa: E402
 from panda_pick_place.offset_resolver import VALID_OFFSETS  # noqa: E402
 from panda_pick_place.workspace_envelope import DEFAULT_ENVELOPE  # noqa: E402
 from panda_pick_place.gripper_helper import GripperHelper  # noqa: E402
@@ -202,6 +203,21 @@ class PickPlaceMcpBridge(Node):
 
 mcp = FastMCP("Panda_PickPlace")
 ros_node: PickPlaceMcpBridge | None = None
+
+
+@mcp.tool()
+def get_action_library() -> str:
+    """返回当前机器人可调用能力目录（atomic action library）。"""
+    try:
+        library = load_action_library()
+    except Exception as exc:  # noqa: BLE001
+        return failed(ErrorCode.INTERNAL_ERROR, f"无法读取 action library: {exc}")
+    return ok(
+        schema_version=library["schema_version"],
+        library_name=library["library_name"],
+        actions=library["actions"],
+        rendered=render_action_library(library),
+    )
 
 
 @mcp.tool()

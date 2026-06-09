@@ -1,7 +1,7 @@
 # PROGRESS.md — 课设进度追踪
 
 > 与 [DESIGN.md](./DESIGN.md)（架构契约）和 [CLAUDE.md](./CLAUDE.md)（运维命令）配合使用。  
-> **最后更新**：2026-06-02 · **整体完成度（粗估）**：~70%
+> **最后更新**：2026-06-08 · **整体完成度（粗估）**：~72%
 
 状态图例：`✅ 已验证` · `🟡 代码有/部分验证` · `❌ 未做` · `⚠️ 阻塞/已知问题`
 
@@ -18,7 +18,7 @@
 | Phase 2 内环 pick/place | 🟡 | pick 已 SUCCEEDED；place 待稳；默认 `skip_all_servo`（避免 RViz 假臂循环） |
 | MCP 中间层 | 🟡 | `mcp_pick_place_brain.py` 完整；未接 MCP 客户端端到端 |
 | LLM / 语音外环 | 🟡 | prompt + `resolve_user_input.py`；Whisper / ReAct 闭环未验 |
-| Git | ⚠️ | 大量实现仍为未提交工作区文件 |
+| Git | ✅ | 当前基线已提交；后续协作改动按分支/PR 记录 |
 
 ---
 
@@ -31,10 +31,10 @@
 | `pick_place_desk.sdf` 桌面与色块 | ✅ | 渲染引擎用 `ogre`（Docker 无 GPU 时避免全黑画面） |
 | 俯视 RGB-D 模型 + `ros_gz_bridge` | ✅ | `/camera/color\|depth/image_raw` ~30–50 Hz |
 | `overhead_camera_static.urdf` TF | ✅ | `world → camera_optical_frame` |
-| `gazebo_desk_only.launch.py` | ✅ | 有 `DISPLAY` 开 GUI；无则 `-s` 无头 |
+| `gazebo_desk_only.launch.py` | ✅ | 有 `DISPLAY` 可开 GUI；WSLg 建议 `PHASE01_USE_GUI=false` 保留相机渲染但跳过 GUI client |
 | Franka 臂在 Gazebo 中运动 | 🟡 | `gazebo_pick_place.launch.py` 已传 `pick_place_desk.sdf`；全栈待验 |
 
-**一键启动**：`./scripts/run_in_container.sh start-phase01`（仅 Phase 0 部分）  
+**一键启动**：`./scripts/run_in_container.sh start-phase01`（仅 Phase 0 部分；本机 WSL 可用 `DISPLAY=:0 PHASE01_USE_GUI=false bash scripts/start_phase01.sh`）  
 **验证**：`./scripts/run_in_container.sh verify-phase0`
 
 ---
@@ -89,7 +89,7 @@
 
 | 项 | 状态 | 备注 |
 |----|------|------|
-| `mcp_pick_place_brain.py` 四工具 + 错误 JSON | 🟡 | 需 ROS 栈在线；MCP 客户端未验 |
+| `mcp_pick_place_brain.py` 四工具 + 错误 JSON | 🟡 | 需 ROS 栈在线；`requirements.txt` 已显式列出 Python `mcp` 依赖；MCP 客户端未验 |
 | `prompts/llm_system_prompt.md` | ✅ | |
 | `config/mcp_client.example.json` | ✅ | |
 | `scripts/resolve_user_input.py`（Whisper） | 🟡 | 可选依赖未在课设硬件验证 |
@@ -136,6 +136,7 @@
 | `bootstrap_workspace.sh` 因 `set -u` 失败 | 改为 `set -eo` |
 | 验证脚本管道与 `check()` 优先级 | `verify_phase0.sh` |
 | 无头模式覆盖宿主机 X11 | launch 按 `DISPLAY` 决定是否 `-s` |
+| WSLg Gazebo GUI client 崩溃（OGRE/GL3PlusTextureGpu） | `start_phase01.sh` 新增 `PHASE01_USE_GUI=auto|true|false`；WSL 自动禁用 GUI client |
 
 ---
 
@@ -148,10 +149,11 @@
 | P1 | 多色块 HSV 仍不稳 | 常只稳检蓝盘；红/绿待调 |
 | P1 | 容器内 **NVIDIA 未透传** | 长期应用 GPU 渲染需修 compose |
 | P1 | HSV 只稳定检出部分色块 | LLM 任务可能找不到 `red_block_01` |
+| P1 | WSLg Gazebo GUI 不稳定 | Phase 0/1 用 `PHASE01_USE_GUI=false`；只保留 `DISPLAY` 给 RGB-D sensor |
 | P2 | `bootstrap` / `rosdep` 不全自动 | 新环境需手动 `apt install ros-humble-libfranka` 等 |
 | P2 | 空 `.setup_assistant` 导致 MoveIt demo 崩溃 | 已用 `config/moveit_setup_assistant.yaml` 安装 |
 | P2 | Panda 命名 vs `robot_type:=fer` 未统一 | MoveIt 与 Franka Gazebo 对齐待做 |
-| P3 | 改动大量 **未 git commit** | 协作与回滚风险 |
+| P3 | 协作分支 / PR / 验证流程未固化 | 多人开发需约定分支命名、验证记录、push 权限 |
 
 ---
 
@@ -166,6 +168,7 @@
 | 2026-06-02 | 同上 | `verify_perception` 桌面位姿 PASS（蓝盘 x≈0.54 y≈-0.05 z≈0.11） |
 | 2026-06-02 | 同上 | `smoke`：pick 到 `pick_servo`（MoveIt 接近成功）；曾 `CONTROL_FAILED` 已修 |
 | 2026-06-02 | 同上 | Gazebo 空场景修复：SDF1.8+内联相机+server/GUI 分离启动；`stop_stack` 杀光 ign |
+| 2026-06-08 | WSL 本机 ROS 2 Humble，`DISPLAY=:0`，Gazebo GUI client disabled | `verify_phase0`：4/4 PASS（color hz≈8.95）；`verify_perception`：PASS（`blue_plate_01`，桌面 envelope PASS；红/绿 HSV 待调） |
 
 **Gazebo 看不见物体？** 先 `./scripts/run_in_container.sh stop`，再 `start-gazebo-desk`；关掉**所有**旧 Gazebo 窗口，等**新** GUI 弹出；在 3D 视图按 `r` 重置视角。
 
