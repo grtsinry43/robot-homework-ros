@@ -17,7 +17,11 @@ case "$CMD" in
   start-phase01)
     xhost +local:docker 2>/dev/null || true
     docker compose up -d
-    docker compose exec -T -e PHASE01_USE_GUI="${PHASE01_USE_GUI:-}" ros2-gazebo bash /root/scripts/start_phase01.sh "$@"
+    if [[ -n "${PHASE01_USE_GUI+x}" ]]; then
+      docker compose exec -T -e PHASE01_USE_GUI="${PHASE01_USE_GUI}" ros2-gazebo bash /root/scripts/start_phase01.sh "$@"
+    else
+      docker compose exec -T ros2-gazebo bash /root/scripts/start_phase01.sh "$@"
+    fi
     ;;
   start-phase2-rviz)
     xhost +local:docker 2>/dev/null || true
