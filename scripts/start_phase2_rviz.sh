@@ -8,13 +8,14 @@ source "$ROOT/scripts/lib/stack_common.sh"
 
 RUN_SMOKE="${1:-}"
 LAUNCH_RVIZ="${LAUNCH_RVIZ:-0}"
+GAZEBO_USE_GUI="${GAZEBO_USE_GUI:-1}"
 
 source_ros
 stop_stack
 configure_gl_env
 
 # --- 唯一仿真场景：Panda + 桌面 + 相机（MoveIt 轨迹在同一 Gazebo 里执行）---
-_start_bg gazebo_panda ros2 launch panda_sim_bringup gazebo_panda_pick_place.launch.py
+_start_bg gazebo_panda ros2 launch panda_sim_bringup gazebo_panda_pick_place.launch.py use_gui:="$GAZEBO_USE_GUI"
 # log: $LOG_DIR/gazebo_panda.log
 echo "==> Gazebo Panda + desk starting (50s)"
 sleep 50
@@ -35,7 +36,6 @@ if [[ "$LAUNCH_RVIZ" == "1" ]]; then
   sleep 5
 fi
 
-_start_bg moveit_servo ros2 launch panda_pick_place moveit_servo.launch.py
 _start_bg pick_place ros2 launch panda_pick_place phase2_rviz.launch.py
 sleep 10
 wait_for_service /perception/trigger_scan 30

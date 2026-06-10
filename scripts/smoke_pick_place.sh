@@ -46,28 +46,51 @@ fi
 PICK_TIMEOUT="${SMOKE_PICK_TIMEOUT:-180}"
 PLACE_TIMEOUT="${SMOKE_PLACE_TIMEOUT:-180}"
 
+_send_goal_expect_success() {
+  local label="$1"
+  local timeout_sec="$2"
+  local action_name="$3"
+  local action_type="$4"
+  local goal_yaml="$5"
+  local output
+  local rc
+
+  set +e
+  output="$(timeout "$timeout_sec" ros2 action send_goal "$action_name" "$action_type" "$goal_yaml" --feedback 2>&1)"
+  rc=$?
+  set -e
+
+  echo "$output"
+  if [[ "$rc" -eq 124 ]]; then
+    echo "[FAIL] $label timed out" >&2
+    exit 1
+  fi
+  if [[ "$rc" -ne 0 ]]; then
+    echo "[FAIL] $label exited with code $rc" >&2
+    exit 1
+  fi
+  if ! grep -q "success: true" <<<"$output"; then
+    local status
+    local code
+    local reason
+    status="$(printf '%s\n' "$output" | sed -n 's/^Goal finished with status: //p' | tail -1)"
+    code="$(printf '%s\n' "$output" | sed -n 's/^[[:space:]]*code:[[:space:]]*//p' | tail -1 | tr -d "'")"
+    reason="$(printf '%s\n' "$output" | sed -n 's/^[[:space:]]*reason:[[:space:]]*//p' | tail -1 | tr -d "'")"
+    echo "[FAIL] $label result not successful${status:+ status=$status}${code:+ code=$code}${reason:+ reason=$reason}" >&2
+    exit 1
+  fi
+}
+
 echo "==> Pick $PICK_ID (timeout ${PICK_TIMEOUT}s)"
-timeout "$PICK_TIMEOUT" ros2 action send_goal /pick_place/pick_object pick_place_msgs/action/PickObject "{object_id: '${PICK_ID}'}" --feedback
-PICK_RC=$?
-if [[ "$PICK_RC" -eq 124 ]]; then
-  echo "[FAIL] pick timed out" >&2
-  exit 1
-fi
-if [[ "$PICK_RC" -ne 0 ]]; then
-  echo "[FAIL] pick exited with code $PICK_RC" >&2
-  exit 1
-fi
+_send_goal_expect_success \
+  "pick" "$PICK_TIMEOUT" \
+  /pick_place/pick_object pick_place_msgs/action/PickObject \
+  "{object_id: '${PICK_ID}'}"
 
 echo "==> Place on $PLACE_ID (timeout ${PLACE_TIMEOUT}s)"
-timeout "$PLACE_TIMEOUT" ros2 action send_goal /pick_place/place_at pick_place_msgs/action/PlaceAt "{target_id: '${PLACE_ID}', offset: 'above'}" --feedback
-PLACE_RC=$?
-if [[ "$PLACE_RC" -eq 124 ]]; then
-  echo "[FAIL] place timed out" >&2
-  exit 1
-fi
-if [[ "$PLACE_RC" -ne 0 ]]; then
-  echo "[FAIL] place exited with code $PLACE_RC" >&2
-  exit 1
-fi
+_send_goal_expect_success \
+  "place" "$PLACE_TIMEOUT" \
+  /pick_place/place_at pick_place_msgs/action/PlaceAt \
+  "{target_id: '${PLACE_ID}', offset: 'above'}"
 
 echo "[PASS] Smoke test done (pick + place)"

@@ -109,19 +109,32 @@ class ExecutorNode(Node):
     def _on_scene(self, msg: SceneState) -> None:
         self._scene = msg
 
-    def _goal_ok(self, _goal) -> GoalResponse:
+    def _describe_goal(self, goal) -> str:
+        if hasattr(goal, "object_id"):
+            return f"pick_object(object_id={goal.object_id})"
+        if hasattr(goal, "target_id") and hasattr(goal, "offset"):
+            return f"place_at(target_id={goal.target_id}, offset={goal.offset})"
+        return type(goal).__name__
+
+    def _goal_ok(self, goal) -> GoalResponse:
+        desc = self._describe_goal(goal)
         if self._current_task:
-            self.get_logger().warning(f"拒绝新 goal：仍在执行 {self._current_task}")
+            self.get_logger().warning(
+                f"goal rejected: {desc}; current_task={self._current_task}; held={self._held_object_id}",
+            )
             return GoalResponse.REJECT
+        self.get_logger().info(f"goal accepted: {desc}; held={self._held_object_id}")
         return GoalResponse.ACCEPT
 
     def _cancel_ok(self, _goal) -> CancelResponse:
+        self.get_logger().warning(f"cancel requested: current_task={self._current_task}; held={self._held_object_id}")
         self._abort.set()
         self._servo.stop()
         return CancelResponse.ACCEPT
 
     def _handle_abort(self, _request: AbortTask.Request, response: AbortTask.Response) -> AbortTask.Response:
         what = self._current_task
+        self.get_logger().warning(f"abort requested: current_task={what or 'idle'}; held={self._held_object_id}")
         self._abort.set()
         self._servo.stop()
         response.success = True
@@ -203,6 +216,47 @@ class ExecutorNode(Node):
         y = target.pose.position.y
         z = target.pose.position.z + height_offset
         return self._moveit.move_to_xyz(x, y, z)
+
+    def _approach_place_pose(self, target: PoseStamped, goal_handle) -> tuple[bool, ErrorCode, str]:
+        """Move to the place approach point via clearance waypoints.
+
+        Direct diagonal moves from a lifted grasp pose to the place approach pose can
+        run close to the simulated controller's execution-duration monitor. Splitting
+        the move keeps each segment simpler and makes failures easier to localize.
+        """
+        x = target.pose.position.x
+        y = target.pose.position.y
+        approach_z = target.pose.position.z + float(self.get_parameter("approach_height_m").value)
+
+        ee = self._ee_position()
+        if ee is None:
+            self.get_logger().warning("place approach: EE TF unavailable, falling back to direct approach")
+            return self._moveit.move_to_xyz(x, y, approach_z)
+
+        clearance_z = max(ee[2], approach_z)
+        if clearance_z - ee[2] > 0.015:
+            self._publish_feedback(goal_handle, "place_clearance_lift", 0.12)
+            self.get_logger().info(
+                f"place clearance lift: xyz=({ee[0]:.3f}, {ee[1]:.3f}, {clearance_z:.3f})",
+            )
+            ok, code, reason = self._moveit.move_to_xyz(ee[0], ee[1], clearance_z)
+            if not ok:
+                return ok, code, reason
+
+        self._publish_feedback(goal_handle, "place_clearance_translate", 0.16)
+        self.get_logger().info(f"place clearance translate: xyz=({x:.3f}, {y:.3f}, {clearance_z:.3f})")
+        ok, code, reason = self._moveit.move_to_xyz(x, y, clearance_z)
+        if not ok:
+            return ok, code, reason
+
+        if abs(clearance_z - approach_z) > 0.015:
+            self._publish_feedback(goal_handle, "place_approach_descend", 0.2)
+            self.get_logger().info(f"place approach descend: xyz=({x:.3f}, {y:.3f}, {approach_z:.3f})")
+            ok, code, reason = self._moveit.move_to_xyz(x, y, approach_z)
+            if not ok:
+                return ok, code, reason
+
+        return True, ErrorCode.INTERNAL_ERROR, ""
 
     def _maybe_servo_to_xyz(
         self,
@@ -323,11 +377,26 @@ class ExecutorNode(Node):
     def _execute_pick(self, goal_handle):
         self._abort.clear()
         object_id = goal_handle.request.object_id
+        self.get_logger().info(
+            f"pick execute start: object_id={object_id}; current_task_before={self._current_task or 'idle'}; "
+            f"held={self._held_object_id}",
+        )
         self._current_task = f"pick_object({object_id})"
+        started_at = time.monotonic()
         try:
-            return self._execute_pick_body(goal_handle, object_id)
+            result = self._execute_pick_body(goal_handle, object_id)
+            self.get_logger().info(
+                f"pick execute result: object_id={object_id}; success={result.success}; "
+                f"code={result.code or 'none'}; elapsed={time.monotonic() - started_at:.1f}s; "
+                f"held={self._held_object_id}",
+            )
+            return result
         finally:
             self._servo.stop()
+            self.get_logger().info(
+                f"pick execute cleanup: clearing current_task={self._current_task or 'idle'}; "
+                f"held={self._held_object_id}",
+            )
             self._current_task = ""
 
     def _execute_pick_body(self, goal_handle, object_id: str):
@@ -377,7 +446,14 @@ class ExecutorNode(Node):
             goal_handle.abort()
             return result
 
-        grasp_xyz = (x, y, z)
+        grasp_z = z
+        if not self._gripper.ready() and self._allow_gripper_skip():
+            grasp_z = z + min(float(self.get_parameter("pre_grasp_height_m").value), 0.03)
+            self.get_logger().info(
+                f"pick: gripper skipped, using safe simulated grasp height z={grasp_z:.3f} instead of {z:.3f}",
+            )
+
+        grasp_xyz = (x, y, grasp_z)
         ok, code, reason = self._maybe_servo_to_xyz(
             grasp_xyz, goal_handle, "pick",
             fallback_track=lambda: self._visual_servo_track_object(
@@ -421,21 +497,40 @@ class ExecutorNode(Node):
         self._abort.clear()
         target_id = goal_handle.request.target_id
         offset = goal_handle.request.offset
+        self.get_logger().info(
+            f"place execute start: target_id={target_id}; offset={offset}; "
+            f"current_task_before={self._current_task or 'idle'}; held={self._held_object_id}",
+        )
         self._current_task = f"place_at({target_id}, {offset})"
+        started_at = time.monotonic()
         try:
-            return self._execute_place_body(goal_handle, target_id, offset)
+            result = self._execute_place_body(goal_handle, target_id, offset)
+            self.get_logger().info(
+                f"place execute result: target_id={target_id}; offset={offset}; success={result.success}; "
+                f"code={result.code or 'none'}; elapsed={time.monotonic() - started_at:.1f}s; "
+                f"held={self._held_object_id}",
+            )
+            return result
         finally:
             self._servo.stop()
+            self.get_logger().info(
+                f"place execute cleanup: clearing current_task={self._current_task or 'idle'}; "
+                f"held={self._held_object_id}",
+            )
             self._current_task = ""
 
     def _execute_place_body(self, goal_handle, target_id: str, offset: str):
+        self.get_logger().info(f"place body start: target_id={target_id}; offset={offset}; held={self._held_object_id}")
         if offset not in VALID_OFFSETS:
+            self.get_logger().warning(f"place rejected: unsupported offset={offset}")
             result = self._make_error_result(PlaceAt.Result(), ErrorCode.INTERNAL_ERROR, f"不支持 offset: {offset}")
             goal_handle.abort()
             return result
 
         base = self._lookup(target_id)
         if base is None:
+            scene_ids = [obj.id for obj in self._scene.objects] if self._scene else []
+            self.get_logger().warning(f"place rejected: target_id={target_id} unavailable; scene_ids={scene_ids}")
             if self._scene and any(o.id == target_id for o in self._scene.objects):
                 result = self._make_error_result(PlaceAt.Result(), ErrorCode.OBJECT_NOT_VISIBLE, f"{target_id} 已过期")
             else:
@@ -446,19 +541,26 @@ class ExecutorNode(Node):
         try:
             place_pose = resolve_offset(base, offset)
         except ValueError as exc:
+            self.get_logger().warning(f"place rejected: resolve_offset failed for {target_id}/{offset}: {exc}")
             result = self._make_error_result(PlaceAt.Result(), ErrorCode.INTERNAL_ERROR, str(exc))
             goal_handle.abort()
             return result
 
         px, py, pz = place_pose.pose.position.x, place_pose.pose.position.y, place_pose.pose.position.z
+        self.get_logger().info(f"place resolved: target_id={target_id}; offset={offset}; xyz=({px:.3f}, {py:.3f}, {pz:.3f})")
         if DEFAULT_ENVELOPE.check_or_error(px, py, pz):
+            self.get_logger().warning(
+                f"place rejected: resolved point out of workspace xyz=({px:.3f}, {py:.3f}, {pz:.3f})",
+            )
             result = self._make_error_result(PlaceAt.Result(), ErrorCode.OUT_OF_REACH, "放置点超出工作空间")
             goal_handle.abort()
             return result
 
         self._publish_feedback(goal_handle, "place_approach", 0.2)
-        ok, code, reason = self._approach_pose(place_pose, self.get_parameter("approach_height_m").value)
+        self.get_logger().info(f"place approach: target_id={target_id}; offset={offset}")
+        ok, code, reason = self._approach_place_pose(place_pose, goal_handle)
         if not ok:
+            self.get_logger().warning(f"place approach failed: code={code.value}; reason={reason}")
             result = self._make_error_result(PlaceAt.Result(), code, reason)
             goal_handle.abort()
             return result
@@ -472,13 +574,16 @@ class ExecutorNode(Node):
         else:
             ok, code, reason = self._maybe_servo_to_xyz(place_xyz, goal_handle, "place")
         if not ok:
+            self.get_logger().warning(f"place move failed: code={code.value}; reason={reason}")
             result = self._make_error_result(PlaceAt.Result(), code, reason)
             goal_handle.abort()
             return result
 
         self._publish_feedback(goal_handle, "place_release", 0.8)
+        self.get_logger().info(f"place release: target_id={target_id}; offset={offset}")
         ok, code, reason = self._gripper_open()
         if not ok:
+            self.get_logger().warning(f"place release failed: code={code.value}; reason={reason}")
             result = self._make_error_result(PlaceAt.Result(), code, reason)
             goal_handle.abort()
             return result

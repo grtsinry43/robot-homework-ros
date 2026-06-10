@@ -1,7 +1,8 @@
 """
 Unified MCP server for pick-and-place (DESIGN.md §4).
 
-Tools exposed to LLM: scan_scene, pick_object, place_at, abort_current_task
+Tools exposed to LLM: get_action_library, get_robot_context, execute_plan,
+scan_scene, pick_object, place_at, abort_current_task
 Debug tools: execute_arm_move, set_gripper
 """
 
@@ -41,6 +42,11 @@ from panda_pick_place.workspace_envelope import DEFAULT_ENVELOPE  # noqa: E402
 from panda_pick_place.gripper_helper import GripperHelper  # noqa: E402
 from panda_pick_place.moveit_helper import MoveItHelper  # noqa: E402
 from panda_pick_place.mcp_validation import validate_pick_target, validate_place_target  # noqa: E402
+from panda_pick_place.plan_executor import (  # noqa: E402
+    PlanStep,
+    PlanValidationError,
+    parse_plan,
+)
 from panda_pick_place.robot_context import RobotContextBuilder  # noqa: E402
 
 
@@ -274,6 +280,138 @@ class PickPlaceMcpBridge(Node):
         )
         return ok(context=context)
 
+    def execute_plan(self, plan_json: str) -> str:
+        try:
+            steps = parse_plan(plan_json, load_action_library())
+        except PlanValidationError as exc:
+            return self._record_tool_result(
+                "execute_plan",
+                failed(ErrorCode.INTERNAL_ERROR, f"invalid plan: {exc}"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._record_tool_result(
+                "execute_plan",
+                failed(ErrorCode.INTERNAL_ERROR, f"unable to prepare plan: {exc}"),
+            )
+
+        step_results: list[dict] = []
+        for index, step in enumerate(steps):
+            raw_result = self._execute_plan_step(step)
+            payload = self._parse_tool_payload(raw_result)
+            step_results.append(
+                {
+                    "index": index,
+                    "tool": step.tool,
+                    "args": step.args,
+                    "result": payload,
+                }
+            )
+
+            status = payload.get("status")
+            if status == "failed":
+                return self._record_tool_result(
+                    "execute_plan",
+                    self._plan_failed_response(index, step, payload, step_results),
+                )
+            if status == "aborted":
+                return self._record_tool_result(
+                    "execute_plan",
+                    self._plan_aborted_response(index, step, payload, step_results),
+                )
+
+        return self._record_tool_result(
+            "execute_plan",
+            ok(
+                plan_status="completed",
+                steps=step_results,
+                final_context=self._current_context_payload(),
+            ),
+        )
+
+    def _execute_plan_step(self, step: PlanStep) -> str:
+        if step.tool == "get_robot_context":
+            return self.get_robot_context()
+        if step.tool == "scan_scene":
+            return self.scan_scene()
+        if step.tool == "pick_object":
+            return self.pick_object(step.args["id"])
+        if step.tool == "place_at":
+            return self.place_at(step.args["target_id"], step.args["offset"])
+        if step.tool == "abort_current_task":
+            return self.abort_current_task()
+        return failed(ErrorCode.INTERNAL_ERROR, f"unsupported plan step: {step.tool}")
+
+    def _parse_tool_payload(self, raw_result: str) -> dict:
+        try:
+            payload = json.loads(raw_result)
+        except json.JSONDecodeError:
+            return {
+                "status": "failed",
+                "code": ErrorCode.INTERNAL_ERROR.value,
+                "reason": "tool returned non-JSON output",
+                "suggestion": "停止任务，检查 MCP tool implementation",
+            }
+        if not isinstance(payload, dict):
+            return {
+                "status": "failed",
+                "code": ErrorCode.INTERNAL_ERROR.value,
+                "reason": "tool returned a non-object JSON payload",
+                "suggestion": "停止任务，检查 MCP tool implementation",
+            }
+        return payload
+
+    def _plan_failed_response(
+        self,
+        index: int,
+        step: PlanStep,
+        payload: dict,
+        step_results: list[dict],
+    ) -> str:
+        code = payload.get("code") or ErrorCode.INTERNAL_ERROR.value
+        reason = payload.get("reason") or f"{step.tool} failed"
+        suggestion = payload.get("suggestion") or "调用 get_robot_context 检查 recent_events 后决定是否重试"
+        return json.dumps(
+            {
+                "status": "failed",
+                "code": code,
+                "reason": f"plan stopped at step {index} ({step.tool}): {reason}",
+                "suggestion": suggestion,
+                "plan_status": "stopped_on_failed_step",
+                "failed_step_index": index,
+                "steps": step_results,
+                "final_context": self._current_context_payload(),
+            },
+            ensure_ascii=False,
+        )
+
+    def _plan_aborted_response(
+        self,
+        index: int,
+        step: PlanStep,
+        payload: dict,
+        step_results: list[dict],
+    ) -> str:
+        what = payload.get("what") or step.tool
+        return json.dumps(
+            {
+                "status": "aborted",
+                "what": what,
+                "plan_status": "stopped_on_aborted_step",
+                "failed_step_index": index,
+                "steps": step_results,
+                "final_context": self._current_context_payload(),
+            },
+            ensure_ascii=False,
+        )
+
+    def _current_context_payload(self) -> dict:
+        payload = self._parse_tool_payload(self.get_robot_context())
+        if payload.get("status") == "ok":
+            context = payload.get("context")
+            if isinstance(context, dict):
+                return context
+        return payload
+
     def _record_tool_result(self, tool: str, result_json: str) -> str:
         try:
             payload = json.loads(result_json)
@@ -332,6 +470,14 @@ def get_robot_context() -> str:
     if ros_node is None:
         return failed(ErrorCode.INTERNAL_ERROR, "ROS 节点未初始化")
     return ros_node.get_robot_context()
+
+
+@mcp.tool()
+def execute_plan(plan_json: str) -> str:
+    """校验并执行短线性计划。plan_json 是 [{"tool": "...", "args": {...}}] 的 JSON 字符串。"""
+    if ros_node is None:
+        return failed(ErrorCode.INTERNAL_ERROR, "ROS 节点未初始化")
+    return ros_node.execute_plan(plan_json)
 
 
 @mcp.tool()

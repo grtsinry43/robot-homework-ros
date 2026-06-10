@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import rclpy
 from geometry_msgs.msg import Pose, PoseStamped
 from moveit_msgs.action import MoveGroup
@@ -17,6 +19,7 @@ from .workspace_envelope import DEFAULT_ENVELOPE
 
 # Panda ready-pose-like orientation (top-down over desk) when TF is unavailable.
 _DEFAULT_EE_QUAT = (0.9238795, 0.0, 0.3826834, 0.0)  # xyzw, ~45° pitch in link0
+_POST_EXECUTION_SETTLE_SEC = 0.35
 
 
 class MoveItHelper:
@@ -118,15 +121,20 @@ class MoveItHelper:
 
         error_code = wrapped.result.error_code.val if wrapped.result.error_code else -1
         if error_code == 1:
+            time.sleep(_POST_EXECUTION_SETTLE_SEC)
             return True, ErrorCode.INTERNAL_ERROR, ""
 
-        hint = {-4: "CONTROL_FAILED", -1: "FAILURE"}.get(error_code, "")
+        hint = {
+            -6: "TIMED_OUT",
+            -4: "CONTROL_FAILED",
+            -2: "INVALID_MOTION_PLAN",
+            -1: "PLANNING_FAILED",
+        }.get(error_code, "")
         suffix = f" ({hint})" if hint else ""
         return False, ErrorCode.MOTION_PLANNING_FAILED, f"MoveIt error_code={error_code}{suffix}"
 
     def _wait_future(self, future, timeout_sec: float) -> bool:
-        try:
-            rclpy.spin_until_future_complete(self._node, future, timeout_sec=timeout_sec)
-        except rclpy.exceptions.ROSInterruptException:
-            return False
+        deadline = time.monotonic() + timeout_sec
+        while rclpy.ok() and not future.done() and time.monotonic() < deadline:
+            time.sleep(0.02)
         return future.done()
