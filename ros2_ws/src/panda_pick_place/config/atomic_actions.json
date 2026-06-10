@@ -50,6 +50,94 @@
       ]
     },
     {
+      "name": "execute_plan",
+      "kind": "mcp_tool",
+      "status": "implemented",
+      "description": "Validate and execute a short linear JSON plan composed of safe registered MCP tools, stopping immediately on the first failed or aborted step and returning structured step feedback.",
+      "entrypoints": {
+        "mcp_tool": "execute_plan",
+        "plan_schema": [
+          {
+            "tool": "scan_scene",
+            "args": {}
+          },
+          {
+            "tool": "pick_object",
+            "args": {
+              "id": "red_block_01"
+            }
+          }
+        ],
+        "allowed_step_tools": [
+          "get_robot_context",
+          "scan_scene",
+          "pick_object",
+          "place_at",
+          "abort_current_task"
+        ],
+        "max_steps": 8
+      },
+      "inputs": {
+        "plan_json": {
+          "type": "string",
+          "required": true,
+          "description": "JSON-encoded array of steps. Each step must be an object with tool and args fields; args must match that tool's action-library input contract."
+        }
+      },
+      "outputs": {
+        "plan_status": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "stopped_on_failed_step",
+            "stopped_on_aborted_step"
+          ]
+        },
+        "steps": {
+          "type": "array",
+          "description": "Executed step records with index, tool, args, and parsed tool result."
+        },
+        "failed_step_index": {
+          "type": "integer",
+          "description": "Index of the failed or aborted step when the plan stops early."
+        },
+        "final_context": {
+          "type": "object",
+          "description": "Robot context snapshot after the completed or stopped plan."
+        }
+      },
+      "preconditions": [
+        "MCP server has initialized its ROS bridge node",
+        "The LLM has already resolved any natural-language references into concrete object ids and semantic offsets"
+      ],
+      "side_effects": [
+        "May invoke scan_scene, pick_object, place_at, or abort_current_task depending on the validated plan",
+        "Records child tool events and the plan result in recent_events"
+      ],
+      "errors": [
+        "OBJECT_NOT_VISIBLE",
+        "UNKNOWN_OBJECT_ID",
+        "OUT_OF_REACH",
+        "MOTION_PLANNING_FAILED",
+        "MOTION_COLLISION",
+        "GRASP_PLANNING_FAILED",
+        "GRIPPER_SLIPPED",
+        "SERVO_TIMEOUT",
+        "SERVO_ABORTED",
+        "INTERNAL_ERROR"
+      ],
+      "safety": [
+        "Rejects unknown tools, debug tools, recursive execute_plan, missing required args, unknown args, and invalid enum values before execution",
+        "Limits plans to 8 linear steps",
+        "Does not support loops, conditions, variable binding, or raw coordinate motion"
+      ],
+      "implementation_refs": [
+        "ros2_ws/mcp_pick_place_brain.py",
+        "ros2_ws/src/panda_pick_place/panda_pick_place/plan_executor.py",
+        "ros2_ws/src/panda_pick_place/config/atomic_actions.json"
+      ]
+    },
+    {
       "name": "scan_scene",
       "kind": "mcp_tool",
       "status": "phase01_verified",

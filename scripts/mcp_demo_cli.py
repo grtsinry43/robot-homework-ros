@@ -35,7 +35,11 @@ def _scene_ids(node: PickPlaceMcpBridge) -> list[str]:
 
 def _run_tool(node: PickPlaceMcpBridge, call: ToolCall) -> str:
     print(f"\n>>> {call.tool}({json.dumps(call.args, ensure_ascii=False)})")
-    if call.tool == "scan_scene":
+    if call.tool == "get_robot_context":
+        out = node.get_robot_context()
+    elif call.tool == "execute_plan":
+        out = node.execute_plan(call.args["plan_json"])
+    elif call.tool == "scan_scene":
         out = node.scan_scene()
     elif call.tool == "pick_object":
         out = node.pick_object(call.args["id"])
@@ -65,12 +69,17 @@ def main() -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("scan", help="scan_scene()")
+    sub.add_parser("context", help="get_robot_context()")
     p_pick = sub.add_parser("pick", help="pick_object(id)")
     p_pick.add_argument("id")
     p_place = sub.add_parser("place", help="place_at(target_id, offset)")
     p_place.add_argument("target_id")
     p_place.add_argument("offset", default="above", nargs="?")
     sub.add_parser("abort", help="abort_current_task()")
+    p_plan = sub.add_parser("plan", help="execute_plan(plan_json)")
+    plan_input = p_plan.add_mutually_exclusive_group(required=True)
+    plan_input.add_argument("--json", dest="plan_json", help="JSON array string of plan steps")
+    plan_input.add_argument("--file", type=Path, help="Path to a JSON file containing plan steps")
 
     p_nl = sub.add_parser("nl", help="NL intent → tool plan (LLM stand-in)")
     p_nl.add_argument("text")
@@ -89,12 +98,17 @@ def main() -> int:
     try:
         if args.cmd == "scan":
             _run_tool(node, ToolCall("scan_scene", {}))
+        elif args.cmd == "context":
+            _run_tool(node, ToolCall("get_robot_context", {}))
         elif args.cmd == "pick":
             _run_tool(node, ToolCall("pick_object", {"id": args.id}))
         elif args.cmd == "place":
             _run_tool(node, ToolCall("place_at", {"target_id": args.target_id, "offset": args.offset}))
         elif args.cmd == "abort":
             _run_tool(node, ToolCall("abort_current_task", {}))
+        elif args.cmd == "plan":
+            plan_json = args.plan_json if args.plan_json is not None else args.file.read_text(encoding="utf-8")
+            _run_tool(node, ToolCall("execute_plan", {"plan_json": plan_json}))
         elif args.cmd == "nl":
             node.scan_scene()
             _spin_once(node, 0.5)

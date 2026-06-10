@@ -59,11 +59,13 @@ stop_stack() {
   for name in pick_place moveit_servo moveit_demo moveit_grp moveit_ctrl moveit_rsp moveit_rviz static_tf gazebo_desk gazebo_franka gazebo_unified gazebo_panda; do
     _stop_one "$name"
   done
-  pkill -f "ign gazebo" 2>/dev/null || true
+  pkill -9 -f "ign gazebo" 2>/dev/null || true
+  pkill -9 -f "/usr/bin/ign gazebo" 2>/dev/null || true
   pkill -f "gz sim" 2>/dev/null || true
   killall -9 ign 2>/dev/null || true
   pkill -9 -f perception_node 2>/dev/null || true
   pkill -9 -f executor_node 2>/dev/null || true
+  pkill -9 -f gripper_joint_state_merger 2>/dev/null || true
   pkill -9 -f move_group 2>/dev/null || true
   pkill -9 -f ros2_control_node 2>/dev/null || true
   pkill -9 -f rviz2 2>/dev/null || true
