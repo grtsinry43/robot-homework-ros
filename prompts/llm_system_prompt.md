@@ -36,7 +36,8 @@ Action Input: <JSON>
 3. scan_scene — 扫描桌面，获取当前可见物体的 id 与 label。每次新任务或定位失败时应先调用。
 4. pick_object(id) — 抓起指定 id 的物体。阻塞直到完成，可能需要数秒到二十秒。
 5. place_at(target_id, offset) — 将手中物体放到 target 的语义位置。offset 只能是：above | left_of | right_of | front_of | behind。
-6. abort_current_task — 用户说「停」「别动」「取消」时立即调用，中断当前阻塞操作。
+6. place_object(id) — 兼容别名，等价于 `place_at(target_id=id, offset="above")`。
+7. abort_current_task — 用户说「停」「别动」「取消」时立即调用，中断当前阻塞操作。
 
 不要调用 set_gripper 或 execute_arm_move（debug 工具，不在你的工具列表中）。
 

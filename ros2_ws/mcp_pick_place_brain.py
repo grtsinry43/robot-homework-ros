@@ -2,7 +2,7 @@
 Unified MCP server for pick-and-place (DESIGN.md §4).
 
 Tools exposed to LLM: get_action_library, get_robot_context, execute_plan,
-scan_scene, pick_object, place_at, abort_current_task
+scan_scene, pick_object, place_at, place_object, abort_current_task
 Debug tools: execute_arm_move, set_gripper
 """
 
@@ -92,6 +92,30 @@ class PickPlaceMcpBridge(Node):
         result = self._wait_future(future, timeout_sec=3.0)
         return bool(result and result.success)
 
+    def _resolve_scene_object_id(self, object_ref: str) -> str | None:
+        ref = object_ref.strip()
+        if not ref or self._latest_scene is None:
+            return None
+        normalized = ref.casefold()
+        exact: str | None = None
+        fuzzy: str | None = None
+        for obj in self._latest_scene.objects:
+            obj_id = obj.id.strip()
+            label = obj.label.strip()
+            id_norm = obj_id.casefold()
+            label_norm = label.casefold()
+            if normalized == id_norm or normalized == label_norm:
+                exact = obj_id
+                break
+            if fuzzy is None and (
+                normalized in id_norm
+                or normalized in label_norm
+                or id_norm in normalized
+                or label_norm in normalized
+            ):
+                fuzzy = obj_id
+        return exact or fuzzy
+
     def scan_scene(self) -> str:
         refreshed = self._call_scan()
         if not refreshed and self._latest_scene is None:
@@ -119,13 +143,14 @@ class PickPlaceMcpBridge(Node):
             )
 
         self._call_scan()
-        pre = validate_pick_target(self._latest_scene, object_id)
+        resolved_id = self._resolve_scene_object_id(object_id) or object_id
+        pre = validate_pick_target(self._latest_scene, resolved_id)
         if pre is not None:
             return self._record_tool_result("pick_object", pre)
 
         goal = PickObject.Goal()
-        goal.object_id = object_id
-        self._active_task = f"pick_object({object_id})"
+        goal.object_id = resolved_id
+        self._active_task = f"pick_object({resolved_id})"
         try:
             send_future = self._pick_client.send_goal_async(goal)
             goal_handle = self._wait_future(send_future, timeout_sec=5.0)
@@ -140,12 +165,12 @@ class PickPlaceMcpBridge(Node):
             if wrapped is None:
                 return self._record_tool_result(
                     "pick_object",
-                    failed(ErrorCode.SERVO_TIMEOUT, f"pick_object({object_id}) 超时"),
+                    failed(ErrorCode.SERVO_TIMEOUT, f"pick_object({resolved_id}) 超时"),
                 )
 
             result = wrapped.result
             if result.success:
-                return self._record_tool_result("pick_object", ok(id=object_id))
+                return self._record_tool_result("pick_object", ok(id=resolved_id, requested_id=object_id))
             return self._record_tool_result(
                 "pick_object",
                 failed(
@@ -183,14 +208,15 @@ class PickPlaceMcpBridge(Node):
             )
 
         self._call_scan()
-        pre = validate_place_target(self._latest_scene, target_id, offset)
+        resolved_target_id = self._resolve_scene_object_id(target_id) or target_id
+        pre = validate_place_target(self._latest_scene, resolved_target_id, offset)
         if pre is not None:
             return self._record_tool_result("place_at", pre)
 
         goal = PlaceAt.Goal()
-        goal.target_id = target_id
+        goal.target_id = resolved_target_id
         goal.offset = offset
-        self._active_task = f"place_at({target_id}, {offset})"
+        self._active_task = f"place_at({resolved_target_id}, {offset})"
         try:
             send_future = self._place_client.send_goal_async(goal)
             goal_handle = self._wait_future(send_future, timeout_sec=5.0)
@@ -205,12 +231,15 @@ class PickPlaceMcpBridge(Node):
             if wrapped is None:
                 return self._record_tool_result(
                     "place_at",
-                    failed(ErrorCode.SERVO_TIMEOUT, f"place_at({target_id}, {offset}) 超时"),
+                    failed(ErrorCode.SERVO_TIMEOUT, f"place_at({resolved_target_id}, {offset}) 超时"),
                 )
 
             result = wrapped.result
             if result.success:
-                return self._record_tool_result("place_at", ok(target_id=target_id, offset=offset))
+                return self._record_tool_result(
+                    "place_at",
+                    ok(target_id=resolved_target_id, requested_target_id=target_id, offset=offset),
+                )
             return self._record_tool_result(
                 "place_at",
                 failed(
@@ -502,6 +531,14 @@ def place_at(target_id: str, offset: str) -> str:
     if ros_node is None:
         return failed(ErrorCode.INTERNAL_ERROR, "ROS 节点未初始化")
     return ros_node.place_at(target_id, offset)
+
+
+@mcp.tool()
+def place_object(id: str) -> str:
+    """兼容别名：把手中物体放到目标物体上方。等价于 place_at(target_id=id, offset='above')."""
+    if ros_node is None:
+        return failed(ErrorCode.INTERNAL_ERROR, "ROS 节点未初始化")
+    return ros_node.place_at(id, "above")
 
 
 @mcp.tool()
