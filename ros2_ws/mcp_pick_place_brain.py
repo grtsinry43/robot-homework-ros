@@ -12,6 +12,7 @@ import os
 import sys
 import threading
 import json
+import re
 
 os.environ["RCUTILS_LOGGING_USE_STDERR"] = "1"
 
@@ -52,6 +53,7 @@ from panda_pick_place.robot_context import RobotContextBuilder  # noqa: E402
 
 ACTION_TIMEOUT_SEC = 180.0
 MAX_RECENT_EVENTS = 10
+TOKEN_SPLIT_PATTERN = r"[^a-z0-9]+"
 
 
 class PickPlaceMcpBridge(Node):
@@ -93,12 +95,22 @@ class PickPlaceMcpBridge(Node):
         return bool(result and result.success)
 
     def _resolve_scene_object_id(self, object_ref: str) -> str | None:
+        """Resolve a scene object reference to a concrete object id.
+
+        Resolution order:
+        1) exact match on object id or label;
+        2) token match (split by non [a-z0-9]) on id/label.
+        Returns None when no object matches or multiple objects match fuzzily.
+        """
         ref = object_ref.strip()
         if not ref or self._latest_scene is None:
             return None
         normalized = ref.casefold()
+        normalized_parts = {part for part in re.split(TOKEN_SPLIT_PATTERN, normalized) if part}
+        if not normalized_parts:
+            return None
         exact: str | None = None
-        fuzzy: str | None = None
+        fuzzy_matches: set[str] = set()
         for obj in self._latest_scene.objects:
             obj_id = obj.id.strip()
             label = obj.label.strip()
@@ -107,14 +119,15 @@ class PickPlaceMcpBridge(Node):
             if normalized == id_norm or normalized == label_norm:
                 exact = obj_id
                 break
-            if fuzzy is None and (
-                normalized in id_norm
-                or normalized in label_norm
-                or id_norm in normalized
-                or label_norm in normalized
-            ):
-                fuzzy = obj_id
-        return exact or fuzzy
+            id_parts = {part for part in re.split(TOKEN_SPLIT_PATTERN, id_norm) if part}
+            label_parts = {part for part in re.split(TOKEN_SPLIT_PATTERN, label_norm) if part}
+            if normalized_parts & id_parts or normalized_parts & label_parts:
+                fuzzy_matches.add(obj_id)
+        if exact is not None:
+            return exact
+        if len(fuzzy_matches) != 1:
+            return None
+        return next(iter(fuzzy_matches))
 
     def scan_scene(self) -> str:
         refreshed = self._call_scan()
@@ -143,7 +156,10 @@ class PickPlaceMcpBridge(Node):
             )
 
         self._call_scan()
-        resolved_id = self._resolve_scene_object_id(object_id) or object_id
+        resolved_id = self._resolve_scene_object_id(object_id)
+        if resolved_id is None:
+            self.get_logger().warning(f"pick_object: unresolved ref '{object_id}', using literal ID")
+            resolved_id = object_id
         pre = validate_pick_target(self._latest_scene, resolved_id)
         if pre is not None:
             return self._record_tool_result("pick_object", pre)
@@ -170,7 +186,7 @@ class PickPlaceMcpBridge(Node):
 
             result = wrapped.result
             if result.success:
-                return self._record_tool_result("pick_object", ok(id=resolved_id, requested_id=object_id))
+                return self._record_tool_result("pick_object", ok(id=resolved_id))
             return self._record_tool_result(
                 "pick_object",
                 failed(
@@ -208,7 +224,10 @@ class PickPlaceMcpBridge(Node):
             )
 
         self._call_scan()
-        resolved_target_id = self._resolve_scene_object_id(target_id) or target_id
+        resolved_target_id = self._resolve_scene_object_id(target_id)
+        if resolved_target_id is None:
+            self.get_logger().warning(f"place_at: unresolved ref '{target_id}', using literal ID")
+            resolved_target_id = target_id
         pre = validate_place_target(self._latest_scene, resolved_target_id, offset)
         if pre is not None:
             return self._record_tool_result("place_at", pre)
@@ -236,10 +255,7 @@ class PickPlaceMcpBridge(Node):
 
             result = wrapped.result
             if result.success:
-                return self._record_tool_result(
-                    "place_at",
-                    ok(target_id=resolved_target_id, requested_target_id=target_id, offset=offset),
-                )
+                return self._record_tool_result("place_at", ok(target_id=resolved_target_id, offset=offset))
             return self._record_tool_result(
                 "place_at",
                 failed(
@@ -538,7 +554,7 @@ def place_object(id: str) -> str:
     """兼容别名：把手中物体放到目标物体上方。等价于 place_at(target_id=id, offset='above')."""
     if ros_node is None:
         return failed(ErrorCode.INTERNAL_ERROR, "ROS 节点未初始化")
-    return ros_node.place_at(id, "above")
+    return ros_node.place_at(target_id=id, offset="above")
 
 
 @mcp.tool()
