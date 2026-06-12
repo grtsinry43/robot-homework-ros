@@ -26,17 +26,21 @@ LABEL_TO_HSV: dict[str, tuple] = {
     "red_block": ([0, 40, 25], [30, 255, 255], [150, 40, 25], [180, 255, 255]),
     "green_block": ([35, 25, 25], [95, 255, 255]),
     "blue_plate": ([85, 30, 25], [145, 255, 255]),
-    "yellow_wall": ([18, 60, 60], [40, 255, 255]),
 }
 
-MATCH_DISTANCE_M = 0.08
+# Track-association radius. HSV centroids under ogre's grayscale rendering jitter several
+# cm frame-to-frame, and the sim-layout fallback fills a slightly different xy than HSV — at
+# 0.08 m the same plate got split into two tracks (blue_plate_01 from fallback + _02 from
+# HSV). 0.12 m absorbs that jitter so each physical object keeps ONE stable id. Same-label
+# is also required to match, and the props are >0.18 m apart, so cross-object mismatch can't
+# happen.
+MATCH_DISTANCE_M = 0.12
 
 # pick_place_desk.sdf poses in panda_link0 (static TF bridges world layout).
 SIM_LAYOUT_POSES: dict[str, tuple[float, float, float]] = {
     "red_block": (0.35, 0.05, 0.06),
     "green_block": (0.42, -0.12, 0.06),
-    "blue_plate": (0.55, -0.05, 0.055),
-    "yellow_wall": (0.45, 0.0, 0.12),
+    "blue_plate": (0.42, 0.20, 0.055),
 }
 
 
@@ -171,10 +175,20 @@ class PerceptionNode(Node):
     def _merge_layout_fallback(
         self, detections: list[tuple[str, float, float, float, float]]
     ) -> list[tuple[str, float, float, float, float]]:
-        """Fill missing labels when Gazebo ogre renders blocks nearly grayscale."""
+        """Fill missing labels when Gazebo ogre renders blocks nearly grayscale, and snap
+        the z of detected objects to the known layout height.
+
+        The overhead depth back-projection over-reads the surface z (e.g. the thin plate
+        came back ~5 cm high), which inflated the place release height. The objects rest on
+        a flat table at known heights, so we trust HSV for xy but override z from the layout
+        prior — keeps the visual tracking while making the place descent land correctly."""
+        layout = SIM_LAYOUT_POSES
+        merged: list[tuple[str, float, float, float, float]] = []
         found = {label for label, *_ in detections}
-        merged = list(detections)
-        for label, (x, y, z) in SIM_LAYOUT_POSES.items():
+        for label, x, y, z, conf in detections:
+            z_fixed = layout[label][2] if label in layout else z
+            merged.append((label, x, y, z_fixed, conf))
+        for label, (x, y, z) in layout.items():
             if label in found:
                 continue
             merged.append((label, x, y, z, 0.72))

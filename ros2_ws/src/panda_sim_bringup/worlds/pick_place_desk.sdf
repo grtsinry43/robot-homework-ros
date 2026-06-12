@@ -47,15 +47,19 @@
       </link>
     </model>
 
+    <!-- Table pulled toward the arm (center x 0.45 -> 0.38) and widened (0.6x0.4 -> 0.62x0.56)
+         so the whole prop layout sits in the Panda's comfortable reach band (~0.30-0.48 m)
+         AND fully on the tabletop — earlier the plate hung off the y edge / sat beyond the
+         vertical-insert reach. Now spans x:0.07-0.69, y:-0.28-+0.28. -->
     <model name="work_table">
       <static>true</static>
-      <pose>0.45 0 0.025 0 0 0</pose>
+      <pose>0.38 0 0.025 0 0 0</pose>
       <link name="link">
         <collision name="collision">
-          <geometry><box><size>0.6 0.4 0.05</size></box></geometry>
+          <geometry><box><size>0.62 0.56 0.05</size></box></geometry>
         </collision>
         <visual name="visual">
-          <geometry><box><size>0.6 0.4 0.05</size></box></geometry>
+          <geometry><box><size>0.62 0.56 0.05</size></box></geometry>
           <material>
             <ambient>0.75 0.72 0.68 1</ambient>
             <diffuse>0.85 0.82 0.78 1</diffuse>
@@ -82,8 +86,11 @@
       </link>
     </model>
 
+    <!-- On the widened table at x=0.42 / y=0.20 (+y side): ~0.465 m from base so the vertical
+         top-down insert is feasible, well clear of red_block (0.35,0.05) and green_block
+         (0.42,-0.12), and fully on the tabletop (y edge now at 0.28). -->
     <model name="blue_plate_01">
-      <pose>0.55 -0.05 0.055 0 0 0</pose>
+      <pose>0.42 0.20 0.055 0 0 0</pose>
       <link name="link">
         <collision name="collision">
           <geometry><cylinder><radius>0.08</radius><length>0.01</length></cylinder></geometry>
@@ -118,26 +125,7 @@
       </link>
     </model>
 
-    <!-- Mid-term demo: static obstacle between pick and place (MoveIt collision object TBD). -->
-    <model name="yellow_wall_01">
-      <static>true</static>
-      <pose>0.45 0.0 0.12 0 0 0</pose>
-      <link name="link">
-        <collision name="collision">
-          <geometry><box><size>0.02 0.28 0.22</size></box></geometry>
-        </collision>
-        <visual name="visual">
-          <geometry><box><size>0.02 0.28 0.22</size></box></geometry>
-          <material>
-            <ambient>1 0.9 0.0 1</ambient>
-            <diffuse>1 0.95 0.1 1</diffuse>
-            <emissive>0.85 0.75 0.0 1</emissive>
-          </material>
-        </visual>
-      </link>
-    </model>
-
-    <!-- Inlined (avoid model:// URI — GUI often fails to resolve include) -->
+<!-- Inlined (avoid model:// URI — GUI often fails to resolve include) -->
     <model name="overhead_camera">
       <static>true</static>
       <pose>0.45 0 1.05 0 1.15 0</pose>
