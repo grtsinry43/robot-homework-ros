@@ -65,6 +65,7 @@ stop_stack() {
   killall -9 ign 2>/dev/null || true
   pkill -9 -f perception_node 2>/dev/null || true
   pkill -9 -f executor_node 2>/dev/null || true
+  pkill -9 -f gazebo_gripper_sim 2>/dev/null || true
   pkill -9 -f gripper_joint_state_merger 2>/dev/null || true
   pkill -9 -f move_group 2>/dev/null || true
   pkill -9 -f ros2_control_node 2>/dev/null || true

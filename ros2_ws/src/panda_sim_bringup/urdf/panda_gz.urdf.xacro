@@ -32,6 +32,7 @@
     <xacro:panda_gz_joint joint_name="panda_joint5"/>
     <xacro:panda_gz_joint joint_name="panda_joint6"/>
     <xacro:panda_gz_joint joint_name="panda_joint7"/>
+    <xacro:panda_gz_joint joint_name="panda_finger_joint1"/>
   </ros2_control>
 
   <gazebo>
@@ -60,4 +61,30 @@
   <xacro:panda_gz_joint_damping joint_name="panda_joint5"/>
   <xacro:panda_gz_joint_damping joint_name="panda_joint6"/>
   <xacro:panda_gz_joint_damping joint_name="panda_joint7"/>
+  <xacro:panda_gz_joint_damping joint_name="panda_finger_joint1"/>
+
+  <!-- Physical grasp: one DetachableJoint per graspable object. The plugin creates a
+       real fixed joint between panda_hand and the object's link when its attach_topic
+       gets a msgs.Empty, and removes it on detach_topic. gazebo_gripper_sim.py drives
+       these topics (no more set_pose dragging). child_link is "link" for every object
+       model in pick_place_desk.sdf. -->
+  <!-- parent_link must be a link that survives URDF->SDF fixed-joint reduction in gz.
+       panda_hand / panda_link8 are fixed-jointed and get collapsed into panda_link7,
+       so the hand is rigidly part of panda_link7 — that's the valid attach parent. -->
+  <xacro:macro name="grasp_joint" params="object">
+    <gazebo>
+      <plugin filename="ignition-gazebo-detachable-joint-system"
+              name="ignition::gazebo::systems::DetachableJoint">
+        <parent_link>panda_link7</parent_link>
+        <child_model>${object}</child_model>
+        <child_link>link</child_link>
+        <attach_topic>/grasp/${object}/attach</attach_topic>
+        <detach_topic>/grasp/${object}/detach</detach_topic>
+        <output_topic>/grasp/${object}/state</output_topic>
+        <suppress_child_warning>true</suppress_child_warning>
+      </plugin>
+    </gazebo>
+  </xacro:macro>
+  <xacro:grasp_joint object="red_block_01"/>
+  <xacro:grasp_joint object="green_block_01"/>
 </robot>

@@ -29,6 +29,11 @@ check "executor node" bash -c 'ros2 node list | grep -q pick_place_executor'
 check "servo_node" bash -c 'ros2 node list | grep -q servo_node'
 check "panda_arm_controller active" bash -c \
   'ros2 control list_controllers 2>/dev/null | grep -q "panda_arm_controller.*active"'
+check "panda_gripper_controller active" bash -c \
+  'ros2 control list_controllers 2>/dev/null | grep -q "panda_gripper_controller.*active"'
+check "franka_gripper move" bash -c 'ros2 action list | grep -q /franka_gripper/move'
+check "franka_gripper grasp" bash -c 'ros2 action list | grep -q /franka_gripper/grasp'
+check "gazebo_gripper_sim" bash -c 'ros2 node list | grep -q gazebo_gripper_sim'
 
 echo "==> Summary: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]]

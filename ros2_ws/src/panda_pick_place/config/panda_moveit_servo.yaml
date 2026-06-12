@@ -6,15 +6,26 @@ servo_node:
     planning_frame: "panda_link0"
     ee_frame_name: "panda_link8"
     robot_link_command_frame: "panda_link0"
-    command_in_type: "unitless"
+    # The executor publishes twists as real error velocities (err_m * kp), so servo must
+    # treat the input as m/s, not unitless [-1,1]. With "unitless" + scale the magnitude
+    # was wrong and the arm barely moved.
+    command_in_type: "speed_units"
     cartesian_command_in_topic: "~/delta_twist_cmds"
     joint_command_in_topic: "~/delta_joint_cmds"
     status_topic: "~/status"
     publish_period: 0.034
     low_latency_mode: true
     scale:
-      linear: 0.4
-      rotational: 0.4
+      linear: 1.0
+      rotational: 1.0
+
+    # Servo output must reach the Gazebo arm controller. It publishes a JointTrajectory
+    # on this topic; panda_arm_controller subscribes to .../joint_trajectory.
+    command_out_topic: "/panda_arm_controller/joint_trajectory"
+    command_out_type: "trajectory_msgs/JointTrajectory"
+    publish_joint_positions: true
+    publish_joint_velocities: false
+    publish_joint_accelerations: false
     lower_singularity_threshold: 17.0
     hard_stop_singularity_threshold: 30.0
     check_collisions: true

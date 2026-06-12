@@ -8,7 +8,7 @@ import time
 from typing import Callable
 
 import rclpy
-from geometry_msgs.msg import PoseStamped, TransformStamped
+from geometry_msgs.msg import PointStamped, Pose, PoseStamped, TransformStamped
 from pick_place_msgs.action import PickObject, PlaceAt
 from pick_place_msgs.srv import AbortTask
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
@@ -16,14 +16,18 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from scene_state_msgs.msg import SceneState
+from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from .errors import ErrorCode, DEFAULT_SUGGESTIONS
 from .gripper_helper import GripperHelper
 from .moveit_helper import MoveItHelper
 from .offset_resolver import VALID_OFFSETS, resolve_offset
+from .planning_scene_helper import PlanningSceneHelper
 from .servo_helper import ServoHelper
 from .workspace_envelope import DEFAULT_ENVELOPE
+
+import tf2_geometry_msgs  # noqa: F401
 
 
 class ExecutorNode(Node):
@@ -39,6 +43,7 @@ class ExecutorNode(Node):
         self.declare_parameter("max_iter", 900)
         self.declare_parameter("approach_height_m", 0.12)
         self.declare_parameter("pre_grasp_height_m", 0.05)
+        self.declare_parameter("ee_grasp_offset_m", 0.103)
         self.declare_parameter("skip_servo_within_m", 0.12)
         self.declare_parameter("skip_place_servo", True)
         self.declare_parameter("skip_all_servo", False)
@@ -54,12 +59,15 @@ class ExecutorNode(Node):
         self.declare_parameter("grasp_force", 5.0)
         self.declare_parameter("gripper_open_width_m", 0.08)
         self.declare_parameter("allow_gripper_skip", False)
+        self.declare_parameter("hand_frame", "panda_hand")
+        self.declare_parameter("use_planning_scene_attach", True)
 
         self._cb_group = ReentrantCallbackGroup()
         self._abort = threading.Event()
         self._current_task = ""
         self._scene: SceneState | None = None
         self._held_object_id: str | None = None
+        self._gazebo_attached_id: str | None = None
 
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
@@ -87,8 +95,17 @@ class ExecutorNode(Node):
             grasp_speed=self.get_parameter("grasp_speed").value,
             grasp_force=self.get_parameter("grasp_force").value,
         )
+        self._planning_scene = PlanningSceneHelper(
+            self,
+            planning_frame=planning_frame,
+            attach_link=self.get_parameter("hand_frame").value,
+        )
 
         self.create_subscription(SceneState, "/scene_state", self._on_scene, 10)
+        self._grasp_hint_pub = self.create_publisher(String, "/gazebo_gripper/grasp_target", 10)
+        self.create_subscription(
+            String, "/gazebo_gripper/attached_object", self._on_gazebo_attached, 10,
+        )
         self.create_service(AbortTask, "/pick_place/abort", self._handle_abort, callback_group=self._cb_group)
 
         self._pick_server = ActionServer(
@@ -108,6 +125,98 @@ class ExecutorNode(Node):
 
     def _on_scene(self, msg: SceneState) -> None:
         self._scene = msg
+
+    def _on_gazebo_attached(self, msg: String) -> None:
+        self._gazebo_attached_id = msg.data.strip() or None
+
+    def _label_for(self, object_id: str) -> str:
+        if self._scene is None:
+            return "red_block"
+        for obj in self._scene.objects:
+            if obj.id == object_id:
+                return obj.label
+        if "plate" in object_id:
+            return "blue_plate"
+        if "green" in object_id:
+            return "green_block"
+        return "red_block"
+
+    def _use_planning_scene(self) -> bool:
+        return bool(self.get_parameter("use_planning_scene_attach").value)
+
+    def _object_pose_in_hand(self, object_id: str) -> Pose | None:
+        target = self._lookup(object_id)
+        if target is None:
+            return None
+        hand_frame = self.get_parameter("hand_frame").value
+        planning_frame = self.get_parameter("planning_frame").value
+        try:
+            hand_tf = self._tf_buffer.lookup_transform(
+                hand_frame,
+                planning_frame,
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=0.5),
+            )
+        except TransformException as exc:
+            self.get_logger().warning(f"hand TF for attach failed: {exc}")
+            return None
+
+        obj_pt = PointStamped()
+        obj_pt.header.frame_id = planning_frame
+        obj_pt.header.stamp = self.get_clock().now().to_msg()
+        obj_pt.point = target.pose.position
+        obj_in_hand = tf2_geometry_msgs.do_transform_point(obj_pt, hand_tf)
+        pose = Pose()
+        pose.position = obj_in_hand.point
+        pose.orientation.w = 1.0
+        return pose
+
+    def _sync_planning_world(self, *, exclude_ids: tuple[str, ...] = ()) -> None:
+        if not self._use_planning_scene() or not self._planning_scene.ready():
+            return
+        if not self._planning_scene.sync_world_from_scene(self._scene, exclude_ids=exclude_ids):
+            self.get_logger().warning("planning scene world sync failed")
+
+    def _remove_planning_object(self, object_id: str) -> None:
+        if not self._use_planning_scene() or not self._planning_scene.ready():
+            return
+        if not self._planning_scene.remove_world_object(object_id):
+            self.get_logger().warning(f"planning scene remove failed for {object_id}")
+
+    def _attach_planning_object(self, object_id: str) -> bool:
+        if not self._use_planning_scene() or not self._planning_scene.ready():
+            return True
+        pose_in_hand = self._object_pose_in_hand(object_id)
+        if pose_in_hand is None:
+            self.get_logger().warning(f"skip planning attach: no pose for {object_id}")
+            return False
+        label = self._label_for(object_id)
+        ok = self._planning_scene.attach_to_hand(object_id, label, pose_in_hand)
+        if not ok:
+            self.get_logger().warning(f"planning scene attach failed for {object_id}")
+        return ok
+
+    def _detach_planning_object(self, object_id: str, world_pose: Pose) -> None:
+        if not self._use_planning_scene() or not self._planning_scene.ready():
+            return
+        label = self._label_for(object_id)
+        if not self._planning_scene.detach_to_world(object_id, label, world_pose):
+            self.get_logger().warning(f"planning scene detach failed for {object_id}")
+
+    def _verify_real_grasp(self, object_id: str, ee_z_before_lift: float) -> tuple[bool, ErrorCode, str]:
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            if self._gazebo_attached_id == object_id:
+                break
+            time.sleep(0.05)
+        else:
+            return False, ErrorCode.GRIPPER_SLIPPED, f"Gazebo 未 attach {object_id}"
+
+        ee = self._ee_position()
+        min_lift = float(self.get_parameter("lift_height_m").value) * 0.35
+        if ee is None or ee[2] < ee_z_before_lift + min_lift:
+            return False, ErrorCode.GRIPPER_SLIPPED, f"{object_id} 抬升不足，疑似未抓牢"
+        return True, ErrorCode.INTERNAL_ERROR, ""
 
     def _describe_goal(self, goal) -> str:
         if hasattr(goal, "object_id"):
@@ -177,8 +286,9 @@ class ExecutorNode(Node):
         result.suggestion = DEFAULT_SUGGESTIONS.get(code, DEFAULT_SUGGESTIONS[ErrorCode.INTERNAL_ERROR])
         return result
 
-    def _check_abort(self) -> bool:
-        return self._abort.is_set()
+    def _link8_grasp_z(self, object_z: float) -> float:
+        """Flange height so finger tips reach object center (link8 is ~10.3cm above fingers)."""
+        return object_z + float(self.get_parameter("ee_grasp_offset_m").value)
 
     def _allow_gripper_skip(self) -> bool:
         return bool(self.get_parameter("allow_gripper_skip").value)
@@ -218,15 +328,11 @@ class ExecutorNode(Node):
         return self._moveit.move_to_xyz(x, y, z)
 
     def _approach_place_pose(self, target: PoseStamped, goal_handle) -> tuple[bool, ErrorCode, str]:
-        """Move to the place approach point via clearance waypoints.
-
-        Direct diagonal moves from a lifted grasp pose to the place approach pose can
-        run close to the simulated controller's execution-duration monitor. Splitting
-        the move keeps each segment simpler and makes failures easier to localize.
-        """
+        """Move to the place approach point via clearance waypoints."""
         x = target.pose.position.x
         y = target.pose.position.y
-        approach_z = target.pose.position.z + float(self.get_parameter("approach_height_m").value)
+        link8_z = self._link8_grasp_z(target.pose.position.z)
+        approach_z = link8_z + float(self.get_parameter("approach_height_m").value)
 
         ee = self._ee_position()
         if ee is None:
@@ -305,7 +411,7 @@ class ExecutorNode(Node):
                     self.get_logger().warning(f"{phase_prefix}_servo 超时 {max_duration}s，停止伺服")
                     self._servo.stop()
                     return True, ErrorCode.INTERNAL_ERROR, ""
-                if self._check_abort() or goal_handle.is_cancel_requested:
+                if self._abort.is_set() or goal_handle.is_cancel_requested:
                     self._servo.stop()
                     return False, ErrorCode.SERVO_ABORTED, "被中断"
 
@@ -411,11 +517,18 @@ class ExecutorNode(Node):
 
         table_z = target.pose.position.z
         x, y, z = target.pose.position.x, target.pose.position.y, target.pose.position.z
-        approach_z = z + float(self.get_parameter("approach_height_m").value)
+        link8_grasp_z = self._link8_grasp_z(z)
+        approach_z = link8_grasp_z + float(self.get_parameter("approach_height_m").value)
         if DEFAULT_ENVELOPE.check_or_error(x, y, approach_z):
             result = self._make_error_result(PickObject.Result(), ErrorCode.OUT_OF_REACH, f"{object_id} 超出工作空间")
             goal_handle.abort()
             return result
+
+        # Include the target block as a collision object so MoveIt routes the approach
+        # AROUND it instead of sweeping the hand sideways through it (which knocked the
+        # block off the table). It's removed from collision just before the final vertical
+        # descent below, so the grasp move itself doesn't collide with it.
+        self._sync_planning_world()
 
         ok, code, reason = self._ensure_gripper()
         if not ok:
@@ -431,14 +544,13 @@ class ExecutorNode(Node):
             return result
 
         self._publish_feedback(goal_handle, "pick_approach", 0.15)
-        ok, code, reason = self._approach_pose(target, self.get_parameter("approach_height_m").value)
+        ok, code, reason = self._moveit.move_to_xyz(x, y, approach_z)
         if not ok:
             result = self._make_error_result(PickObject.Result(), code, reason)
             goal_handle.abort()
             return result
 
-        x, y, z = target.pose.position.x, target.pose.position.y, target.pose.position.z
-        pre_z = z + float(self.get_parameter("pre_grasp_height_m").value)
+        pre_z = link8_grasp_z + float(self.get_parameter("pre_grasp_height_m").value)
         self._publish_feedback(goal_handle, "pick_pre_grasp", 0.22)
         ok, code, reason = self._moveit.move_to_xyz(x, y, pre_z)
         if not ok:
@@ -446,11 +558,15 @@ class ExecutorNode(Node):
             goal_handle.abort()
             return result
 
-        grasp_z = z
+        # Hand is now directly above the block. Drop the block from the collision world so
+        # the final vertical descent into the grasp pose doesn't collide with it.
+        self._remove_planning_object(object_id)
+
+        grasp_z = link8_grasp_z
         if not self._gripper.ready() and self._allow_gripper_skip():
-            grasp_z = z + min(float(self.get_parameter("pre_grasp_height_m").value), 0.03)
+            grasp_z = link8_grasp_z + min(float(self.get_parameter("pre_grasp_height_m").value), 0.03)
             self.get_logger().info(
-                f"pick: gripper skipped, using safe simulated grasp height z={grasp_z:.3f} instead of {z:.3f}",
+                f"pick: gripper skipped, using safe simulated grasp height z={grasp_z:.3f}",
             )
 
         grasp_xyz = (x, y, grasp_z)
@@ -466,11 +582,23 @@ class ExecutorNode(Node):
             return result
 
         self._publish_feedback(goal_handle, "pick_grasp", 0.7)
+        self._grasp_hint_pub.publish(String(data=object_id))
         ok, code, reason = self._gripper_close()
         if not ok:
             result = self._make_error_result(PickObject.Result(), code, reason)
             goal_handle.abort()
             return result
+
+        # Planning-scene attach is collision bookkeeping for carry-time avoidance; the
+        # physical DetachableJoint already holds the object, so a failure here must not
+        # fail the pick.
+        if not self._attach_planning_object(object_id):
+            self.get_logger().warning(
+                f"planning scene attach failed for {object_id}; physical grasp still holds, continuing",
+            )
+
+        ee_before_lift = self._ee_position()
+        ee_z_before = ee_before_lift[2] if ee_before_lift else 0.0
 
         self._publish_feedback(goal_handle, "pick_lift", 0.85)
         ok, code, reason = self._lift_ee(self.get_parameter("lift_height_m").value)
@@ -479,12 +607,18 @@ class ExecutorNode(Node):
             goal_handle.abort()
             return result
 
-        if self._gripper.ready():
+        if self._gripper.ready() and self._allow_gripper_skip():
             ok, code, reason = self._verify_held(object_id, table_z)
             if not ok:
                 result = self._make_error_result(PickObject.Result(), code, reason)
                 goal_handle.abort()
                 self._current_task = ""
+                return result
+        elif self._gripper.ready() and not self._allow_gripper_skip():
+            ok, code, reason = self._verify_real_grasp(object_id, ee_z_before)
+            if not ok:
+                result = self._make_error_result(PickObject.Result(), code, reason)
+                goal_handle.abort()
                 return result
 
         self._held_object_id = object_id
@@ -547,14 +681,20 @@ class ExecutorNode(Node):
             return result
 
         px, py, pz = place_pose.pose.position.x, place_pose.pose.position.y, place_pose.pose.position.z
-        self.get_logger().info(f"place resolved: target_id={target_id}; offset={offset}; xyz=({px:.3f}, {py:.3f}, {pz:.3f})")
-        if DEFAULT_ENVELOPE.check_or_error(px, py, pz):
+        place_link8_z = self._link8_grasp_z(pz)
+        self.get_logger().info(
+            f"place resolved: target_id={target_id}; offset={offset}; "
+            f"xyz=({px:.3f}, {py:.3f}, {pz:.3f}); link8_z={place_link8_z:.3f}",
+        )
+        if DEFAULT_ENVELOPE.check_or_error(px, py, place_link8_z):
             self.get_logger().warning(
                 f"place rejected: resolved point out of workspace xyz=({px:.3f}, {py:.3f}, {pz:.3f})",
             )
             result = self._make_error_result(PlaceAt.Result(), ErrorCode.OUT_OF_REACH, "放置点超出工作空间")
             goal_handle.abort()
             return result
+
+        self._sync_planning_world(exclude_ids=(self._held_object_id or "",))
 
         self._publish_feedback(goal_handle, "place_approach", 0.2)
         self.get_logger().info(f"place approach: target_id={target_id}; offset={offset}")
@@ -565,12 +705,12 @@ class ExecutorNode(Node):
             goal_handle.abort()
             return result
 
-        place_xyz = (px, py, pz)
+        place_xyz = (px, py, place_link8_z)
         if bool(self.get_parameter("skip_place_servo").value) or bool(
             self.get_parameter("skip_all_servo").value
         ):
             self.get_logger().info("place: MoveIt 直达放置点（无伺服）")
-            ok, code, reason = self._moveit.move_to_xyz(px, py, pz)
+            ok, code, reason = self._moveit.move_to_xyz(px, py, place_link8_z)
         else:
             ok, code, reason = self._maybe_servo_to_xyz(place_xyz, goal_handle, "place")
         if not ok:
@@ -587,6 +727,9 @@ class ExecutorNode(Node):
             result = self._make_error_result(PlaceAt.Result(), code, reason)
             goal_handle.abort()
             return result
+
+        if self._held_object_id:
+            self._detach_planning_object(self._held_object_id, place_pose.pose)
 
         self._held_object_id = None
         result = PlaceAt.Result()

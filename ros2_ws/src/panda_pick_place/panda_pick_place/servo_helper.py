@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import rclpy
 from geometry_msgs.msg import TwistStamped
 from rclpy.node import Node
@@ -61,14 +63,16 @@ class ServoHelper:
         if not client.wait_for_service(timeout_sec=timeout_sec):
             return False
         future = client.call_async(Trigger.Request())
-        self._spin_until_done(future, timeout_sec)
-        if not future.done() or future.result() is None:
+        # The node is already spun by the executor's MultiThreadedExecutor; spinning it
+        # again here would error/deadlock. Poll the future instead (same pattern as the
+        # gripper/moveit helpers).
+        if not self._wait_future(future, timeout_sec):
             return False
-        return bool(future.result().success)
+        result = future.result()
+        return result is not None and bool(result.success)
 
-    def _spin_until_done(self, future, timeout_sec: float) -> bool:
-        try:
-            rclpy.spin_until_future_complete(self._node, future, timeout_sec=timeout_sec)
-        except rclpy.exceptions.ROSInterruptException:
-            return False
+    def _wait_future(self, future, timeout_sec: float) -> bool:
+        deadline = time.monotonic() + timeout_sec
+        while rclpy.ok() and not future.done() and time.monotonic() < deadline:
+            time.sleep(0.02)
         return future.done()

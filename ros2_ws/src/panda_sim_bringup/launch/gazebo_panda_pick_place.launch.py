@@ -151,6 +151,7 @@ def generate_launch_description():
         arguments=[
             "joint_state_broadcaster",
             "panda_arm_controller",
+            "panda_gripper_controller",
             "--controller-manager-timeout", "45",
         ],
         parameters=[controllers_yaml],
@@ -171,11 +172,48 @@ def generate_launch_description():
         output="screen",
     )
 
+    set_pose_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        name="ros_gz_set_pose_bridge",
+        arguments=[
+            "/world/pick_place_desk/set_pose@ros_gz_interfaces/srv/SetEntityPose",
+        ],
+        output="screen",
+    )
+
+    # DetachableJoint attach/detach triggers (ROS std_msgs/Empty -> gz ignition.msgs.Empty).
+    # gazebo_gripper_sim.py publishes here to create/remove the physical grasp joint.
+    grasp_models = ["red_block_01", "green_block_01"]
+    grasp_bridge_args = []
+    for model in grasp_models:
+        grasp_bridge_args.append(
+            f"/grasp/{model}/attach@std_msgs/msg/Empty]ignition.msgs.Empty"
+        )
+        grasp_bridge_args.append(
+            f"/grasp/{model}/detach@std_msgs/msg/Empty]ignition.msgs.Empty"
+        )
+    grasp_joint_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        name="ros_gz_grasp_joint_bridge",
+        arguments=grasp_bridge_args,
+        output="screen",
+    )
+
     gripper_joint_state_merger = Node(
         package="panda_sim_bringup",
         executable="gripper_joint_state_merger.py",
         output="screen",
     )
+
+    gazebo_gripper_sim = Node(
+        package="panda_sim_bringup",
+        executable="gazebo_gripper_sim.py",
+        output="screen",
+    )
+
+    delayed_gripper_sim = TimerAction(period=8.0, actions=[gazebo_gripper_sim])
 
     return LaunchDescription([
         use_gui_arg,
@@ -190,10 +228,12 @@ def generate_launch_description():
         RegisterEventHandler(
             event_handler=OnProcessExit(
                 target_action=spawn_robot,
-                on_exit=[spawn_controllers],
+                on_exit=[spawn_controllers, delayed_gripper_sim],
             )
         ),
         camera_static_tf,
         ros_gz_bridge,
+        set_pose_bridge,
+        grasp_joint_bridge,
         gripper_joint_state_merger,
     ])
