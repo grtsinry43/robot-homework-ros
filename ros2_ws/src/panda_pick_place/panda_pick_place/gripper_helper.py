@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -95,18 +97,22 @@ class GripperHelper:
             return False, ErrorCode.GRASP_PLANNING_FAILED, reason
         return True, ErrorCode.INTERNAL_ERROR, ""
 
+    def _wait_future(self, future, timeout_sec: float) -> bool:
+        deadline = time.monotonic() + timeout_sec
+        while rclpy.ok() and not future.done() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return future.done()
+
     def _send_action(self, client: ActionClient, goal, timeout_sec: float) -> tuple[bool, str]:
         send_future = client.send_goal_async(goal)
-        self._spin_until_done(send_future, 5.0)
-        if not send_future.done():
+        if not self._wait_future(send_future, 15.0):
             return False, "提交夹爪目标超时"
         goal_handle = send_future.result()
         if goal_handle is None or not goal_handle.accepted:
             return False, "夹爪目标被拒绝"
 
         result_future = goal_handle.get_result_async()
-        self._spin_until_done(result_future, timeout_sec)
-        if not result_future.done():
+        if not self._wait_future(result_future, timeout_sec):
             return False, "夹爪执行超时"
         wrapped = result_future.result()
         if wrapped is None:
@@ -116,8 +122,4 @@ class GripperHelper:
         return False, f"夹爪 action status={wrapped.status}"
 
     def _spin_until_done(self, future, timeout_sec: float) -> bool:
-        try:
-            rclpy.spin_until_future_complete(self._node, future, timeout_sec=timeout_sec)
-        except rclpy.exceptions.ROSInterruptException:
-            return False
-        return future.done()
+        return self._wait_future(future, timeout_sec)

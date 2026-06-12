@@ -7,20 +7,33 @@ pick_place_executor:
     ee_link: "panda_link8"
     move_group: "panda_arm"
     servo_rate_hz: 30.0
-    kp: 0.35
-    converge_thresh_m: 0.02
-    max_iter: 80
-    servo_max_duration_sec: 12.0
-    approach_height_m: 0.15
+    kp: 0.3
+    converge_thresh_m: 0.005
+    max_iter: 900
+    servo_max_duration_sec: 30.0
+    approach_height_m: 0.12
     pre_grasp_height_m: 0.05
-    skip_servo_within_m: 0.2
+    ee_grasp_offset_m: 0.103
+    # Pure-MoveIt path (no moveit_servo). Servo's greedy Cartesian descent drove the
+    # Panda wrist into a singularity at the inner workspace edge (x~0.35) and the
+    # anti-singularity logic pushed the hand up to z=0.6 instead of down. MoveIt plans a
+    # full singularity-aware joint path instead; the precision comes from a tight position
+    # constraint (see moveit_helper sphere radius) rather than servo convergence.
+    skip_servo_within_m: 0.015
     skip_all_servo: true
     skip_place_servo: true
     lift_height_m: 0.15
     stale_after_sec: 10.0
     servo_node_name: "servo_node"
     servo_twist_topic: "/servo_node/delta_twist_cmds"
-    allow_gripper_skip: true
+    allow_gripper_skip: false
+    # Planning scene ON: target block is added as a collision object so MoveIt routes the
+    # approach around it (instead of sweeping the hand through it and knocking it away),
+    # then it's removed just before the final vertical descent. The post-grasp attach is
+    # non-fatal bookkeeping. Physical grasp is the Gazebo DetachableJoint.
+    use_planning_scene_attach: true
+    grasp_width_m: 0.03
+    gripper_open_width_m: 0.08
 
 perception_node:
   ros__parameters:

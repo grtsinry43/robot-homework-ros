@@ -28,11 +28,13 @@ _ids_from_scene() {
   echo "$SCENE" | sed -n 's/^[[:space:]]*- id: \([^[:space:]]*\).*/\1/p'
 }
 if [[ -z "$PICK_ID" ]]; then
-  PICK_ID=$(_ids_from_scene | grep -E 'red_block|green_block' | head -1 || true)
+  PICK_ID=$(_ids_from_scene | grep -E 'red_block_01|green_block_01' | head -1 || true)
+  [[ -z "$PICK_ID" ]] && PICK_ID=$(_ids_from_scene | grep -E 'red_block|green_block' | head -1 || true)
   [[ -z "$PICK_ID" ]] && PICK_ID=$(_ids_from_scene | head -1)
 fi
 if [[ -z "$PLACE_ID" ]]; then
-  PLACE_ID=$(_ids_from_scene | grep -E 'blue_plate' | head -1 || true)
+  PLACE_ID=$(_ids_from_scene | grep -E 'blue_plate_01' | head -1 || true)
+  [[ -z "$PLACE_ID" ]] && PLACE_ID=$(_ids_from_scene | grep -E 'blue_plate' | head -1 || true)
   if [[ -z "$PLACE_ID" ]]; then
     PLACE_ID=$(_ids_from_scene | head -1 | sed 's/red_block/blue_plate/; s/green_block/blue_plate/')
   fi
@@ -86,6 +88,10 @@ _send_goal_expect_success \
   "pick" "$PICK_TIMEOUT" \
   /pick_place/pick_object pick_place_msgs/action/PickObject \
   "{object_id: '${PICK_ID}'}"
+
+echo "==> Refresh scene before place"
+ros2 service call /perception/trigger_scan pick_place_msgs/srv/TriggerScan "{}" || true
+sleep 1
 
 echo "==> Place on $PLACE_ID (timeout ${PLACE_TIMEOUT}s)"
 _send_goal_expect_success \

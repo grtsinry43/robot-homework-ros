@@ -38,11 +38,17 @@ class GripperJointStateMerger(Node):
         out.velocity = list(msg.velocity) if msg.velocity else []
         out.effort = list(msg.effort) if msg.effort else []
 
+        finger1_pos = self._finger_open
+        if "panda_finger_joint1" in out.name:
+            idx = out.name.index("panda_finger_joint1")
+            if idx < len(out.position):
+                finger1_pos = out.position[idx]
+
         for finger in ("panda_finger_joint1", "panda_finger_joint2"):
             if finger in out.name:
                 continue
             out.name.append(finger)
-            out.position.append(self._finger_open)
+            out.position.append(finger1_pos)
             if out.velocity:
                 out.velocity.append(0.0)
             if out.effort:
