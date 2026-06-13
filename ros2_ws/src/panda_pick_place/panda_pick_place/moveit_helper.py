@@ -62,6 +62,15 @@ class MoveItHelper:
         return _GRASP_EE_QUAT
 
     def move_to_xyz(self, x: float, y: float, z: float, timeout_sec: float = 30.0) -> tuple[bool, ErrorCode, str]:
+        """OMPL joint-space move to (x,y,z) with a sphere position tolerance.
+
+        We tried Pilz LIN for the vertical approach/descend/lift to get visibly straight
+        paths, but in a planning scene populated with the plate/table/blocks the strict
+        Cartesian line was judged INVALID_MOTION_PLAN almost every time (the line clips a
+        collision body), forcing a slow OMPL fallback on every step. The practical fix for
+        the "abstract trajectory" problem is the tuned OMPL config (ompl_planning.yaml:
+        RRTConnect + path simplification + dense edge collision checking), which keeps the
+        joint-space plans short and smooth without LIN's brittleness."""
         if DEFAULT_ENVELOPE.check_or_error(x, y, z):
             return False, ErrorCode.OUT_OF_REACH, "目标超出安全工作空间"
 

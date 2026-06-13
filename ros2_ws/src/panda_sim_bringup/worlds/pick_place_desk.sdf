@@ -126,9 +126,14 @@
     </model>
 
 <!-- Inlined (avoid model:// URI — GUI often fails to resolve include) -->
+    <!-- True top-down: directly above table center (0.38,0), optical axis straight down
+         (pitch = pi/2). The old pose (0.45,0,1.05, pitch 1.15rad=66deg) was a steep oblique
+         that pushed the blocks off the bottom edge of the 480px frame; only the +y plate
+         stayed marginally visible. Straight-down at 1.0m with 60deg fov covers +-0.577m,
+         enough for the whole x:0.07-0.69 / y:+-0.28 prop layout. -->
     <model name="overhead_camera">
       <static>true</static>
-      <pose>0.45 0 1.05 0 1.15 0</pose>
+      <pose>0.38 0 1.05 0 1.5708 0</pose>
       <link name="camera_link">
         <visual name="housing">
           <geometry><box><size>0.06 0.04 0.03</size></box></geometry>

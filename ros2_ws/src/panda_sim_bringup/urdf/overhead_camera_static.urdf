@@ -2,7 +2,7 @@
 <robot name="overhead_camera_static_tf" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <!--
     Eye-in-world camera mounted relative to panda_link0 (DESIGN.md §6.3).
-    Matches pick_place_desk.sdf overhead_camera pose: 0.45 0 1.05, pitch ~1.15 rad.
+    Matches pick_place_desk.sdf overhead_camera pose: 0.38 0 1.05, pitch pi/2 (true top-down).
     Gazebo publishes sensor data in overhead_camera/camera_link/rgbd; alias via static TF in launch.
   -->
   <link name="panda_link0"/>
@@ -12,7 +12,7 @@
   <joint name="panda_link0_to_camera_link" type="fixed">
     <parent link="panda_link0"/>
     <child link="camera_link"/>
-    <origin xyz="0.45 0.0 1.05" rpy="0 1.15 0"/>
+    <origin xyz="0.38 0.0 1.05" rpy="0 1.5708 0"/>
   </joint>
 
   <joint name="camera_link_to_optical" type="fixed">

@@ -349,6 +349,7 @@ class ExecutorNode(Node):
             if not ok:
                 return ok, code, reason
 
+        # Lateral move over the plate at clearance height: free-space, keep OMPL joint-space.
         self._publish_feedback(goal_handle, "place_clearance_translate", 0.16)
         self.get_logger().info(f"place clearance translate: xyz=({x:.3f}, {y:.3f}, {clearance_z:.3f})")
         ok, code, reason = self._moveit.move_to_xyz(x, y, clearance_z)
@@ -710,6 +711,9 @@ class ExecutorNode(Node):
             self.get_parameter("skip_all_servo").value
         ):
             self.get_logger().info("place: MoveIt 直达放置点（无伺服）")
+            # Final drop to the release point uses OMPL's sphere tolerance + collision
+            # avoidance: the release pose sits low among plate+table+held-block geometry,
+            # so it needs that slack to find a valid pose.
             ok, code, reason = self._moveit.move_to_xyz(px, py, place_link8_z)
         else:
             ok, code, reason = self._maybe_servo_to_xyz(place_xyz, goal_handle, "place")
