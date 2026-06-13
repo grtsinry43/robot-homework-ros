@@ -8,7 +8,7 @@ import time
 from typing import Callable
 
 import rclpy
-from geometry_msgs.msg import PointStamped, Pose, PoseStamped, TransformStamped
+from geometry_msgs.msg import Pose, PoseStamped, TransformStamped
 from pick_place_msgs.action import PickObject, PlaceAt
 from pick_place_msgs.srv import AbortTask
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
@@ -44,6 +44,12 @@ class ExecutorNode(Node):
         self.declare_parameter("approach_height_m", 0.12)
         self.declare_parameter("pre_grasp_height_m", 0.05)
         self.declare_parameter("ee_grasp_offset_m", 0.103)
+        # Where the grasped object sits in the panda_hand frame: fingertips hang ~0.10 m
+        # below the hand origin along hand +z (matches gazebo_gripper_sim's
+        # gripper_center_in_hand_z_m). Used for the planning-scene attach pose so we DON'T
+        # have to look the object up in /scene_state after grasping — it's occluded/stale by
+        # then, which is why attach used to fail every time and poison the planning scene.
+        self.declare_parameter("grasp_object_in_hand_z_m", 0.10)
         self.declare_parameter("skip_servo_within_m", 0.12)
         self.declare_parameter("skip_place_servo", True)
         self.declare_parameter("skip_all_servo", False)
@@ -145,29 +151,19 @@ class ExecutorNode(Node):
         return bool(self.get_parameter("use_planning_scene_attach").value)
 
     def _object_pose_in_hand(self, object_id: str) -> Pose | None:
-        target = self._lookup(object_id)
-        if target is None:
-            return None
-        hand_frame = self.get_parameter("hand_frame").value
-        planning_frame = self.get_parameter("planning_frame").value
-        try:
-            hand_tf = self._tf_buffer.lookup_transform(
-                hand_frame,
-                planning_frame,
-                rclpy.time.Time(),
-                timeout=rclpy.duration.Duration(seconds=0.5),
-            )
-        except TransformException as exc:
-            self.get_logger().warning(f"hand TF for attach failed: {exc}")
-            return None
+        """Pose of the just-grasped object in the panda_hand frame.
 
-        obj_pt = PointStamped()
-        obj_pt.header.frame_id = planning_frame
-        obj_pt.header.stamp = self.get_clock().now().to_msg()
-        obj_pt.point = target.pose.position
-        obj_in_hand = tf2_geometry_msgs.do_transform_point(obj_pt, hand_tf)
+        After a grasp the object is physically snapped to the gripper center, so its pose in
+        the hand frame is a FIXED known offset (down the hand +z by grasp_object_in_hand_z_m)
+        — independent of /scene_state. The old version looked the object up in /scene_state
+        and TF-projected it into the hand, but by attach time the object is occluded by the
+        hand and its track is stale, so the lookup returned None and attach failed EVERY
+        time, leaving the planning scene poisoned (object both on-table and on-robot) and
+        deadlocking later multi-step plans."""
         pose = Pose()
-        pose.position = obj_in_hand.point
+        pose.position.x = 0.0
+        pose.position.y = 0.0
+        pose.position.z = float(self.get_parameter("grasp_object_in_hand_z_m").value)
         pose.orientation.w = 1.0
         return pose
 

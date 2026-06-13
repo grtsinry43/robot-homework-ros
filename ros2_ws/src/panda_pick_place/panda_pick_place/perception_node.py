@@ -28,13 +28,9 @@ LABEL_TO_HSV: dict[str, tuple] = {
     "blue_plate": ([85, 30, 25], [145, 255, 255]),
 }
 
-# Track-association radius. HSV centroids under ogre's grayscale rendering jitter several
-# cm frame-to-frame, and the sim-layout fallback fills a slightly different xy than HSV — at
-# 0.08 m the same plate got split into two tracks (blue_plate_01 from fallback + _02 from
-# HSV). 0.12 m absorbs that jitter so each physical object keeps ONE stable id. Same-label
-# is also required to match, and the props are >0.18 m apart, so cross-object mismatch can't
-# happen.
-MATCH_DISTANCE_M = 0.12
+# Ids are now canonical per label (see _match_or_create_id), so distance-based track
+# association is no longer used — one object per label keeps one stable id regardless of
+# HSV jitter, occlusion, or movement.
 
 # pick_place_desk.sdf poses in panda_link0 (static TF bridges world layout).
 SIM_LAYOUT_POSES: dict[str, tuple[float, float, float]] = {
@@ -81,6 +77,9 @@ class PerceptionNode(Node):
         self._camera_info: CameraInfo | None = None
         self._objects: dict[str, ObjectPose] = {}
         self._label_seq: dict[str, int] = {}
+        # Canonical, persistent id per label (one object per label in this scene). Survives
+        # track expiry/occlusion/movement so ids never drift — see _match_or_create_id.
+        self._canonical_id: dict[str, str] = {}
 
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
@@ -241,23 +240,27 @@ class PerceptionNode(Node):
             del self._objects[oid]
 
     def _match_or_create_id(self, label: str, x: float, y: float, z: float, taken: set[str]) -> str:
-        best_id = None
-        best_dist = MATCH_DISTANCE_M
-        for oid, obj in self._objects.items():
-            if obj.label != label or oid in taken:
-                continue
-            dx = obj.pose.pose.position.x - x
-            dy = obj.pose.pose.position.y - y
-            dz = obj.pose.pose.position.z - z
-            dist = math.sqrt(dx * dx + dy * dy + dz * dz)
-            if dist < best_dist:
-                best_dist = dist
-                best_id = oid
-        if best_id:
-            return best_id
+        """Return a STABLE id for this detection.
+
+        The scene has exactly one object per label (one red block, one green block, one
+        plate), so the id is canonical per label: once `red_block` gets `red_block_01` it
+        keeps it forever — even after the arm occludes it for >stale_after_sec (track
+        expires) or it's moved far (pick->place). Earlier this matched only against live
+        tracks by distance, so an occluded/moved object came back as a fresh `_02`/`_04`,
+        which then broke grasp-select (gazebo_gripper_sim looks up a fixed id in
+        /scene_state). Canonical-by-label removes that drift entirely.
+
+        `taken` still guards the (abnormal) case of two same-label detections in one frame
+        — only the first claims the canonical id; a second would get a fresh suffix."""
+        canonical = self._canonical_id.get(label)
+        if canonical is not None and canonical not in taken:
+            return canonical
 
         self._label_seq[label] = self._label_seq.get(label, 0) + 1
-        return f"{label}_{self._label_seq[label]:02d}"
+        new_id = f"{label}_{self._label_seq[label]:02d}"
+        if canonical is None:
+            self._canonical_id[label] = new_id
+        return new_id
 
     def _lookup_depth_m(self, u: int, v: int) -> float | None:
         if self._latest_depth is None:

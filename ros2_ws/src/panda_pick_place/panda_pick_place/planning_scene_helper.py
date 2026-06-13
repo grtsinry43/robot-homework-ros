@@ -70,9 +70,15 @@ class PlanningSceneHelper:
         req.scene = scene
         future = self._client.call_async(req)
         if not self._wait_future(future, timeout_sec):
+            self._node.get_logger().warning("apply_planning_scene call timed out")
             return False
         resp = future.result()
-        return resp is not None and resp.success
+        if resp is None:
+            self._node.get_logger().warning("apply_planning_scene returned no result")
+            return False
+        if not resp.success:
+            self._node.get_logger().warning("apply_planning_scene resp.success=False")
+        return resp.success
 
     @staticmethod
     def _primitive_for_label(label: str) -> tuple[int, list[float]]:
@@ -173,15 +179,16 @@ class PlanningSceneHelper:
         aco.object = co
         aco.touch_links = list(self._touch_links)
 
-        remove = CollisionObject()
-        remove.id = object_id
-        remove.operation = CollisionObject.REMOVE
-
+        # NOTE: do NOT also push a world REMOVE for object_id here. By the time we attach, the
+        # grasp target was already removed from the world (executor removes it before the
+        # final descent), so a second REMOVE of a non-existent id made MoveIt reject the whole
+        # diff (apply_planning_scene resp.success=False) — which left attach failing every
+        # time and poisoned multi-step plans. The AttachedCollisionObject ADD carries its own
+        # geometry, so it doesn't need the object to pre-exist in the world.
         scene_diff = PlanningScene()
         scene_diff.is_diff = True
         scene_diff.robot_state.is_diff = True
         scene_diff.robot_state.attached_collision_objects = [aco]
-        scene_diff.world.collision_objects = [remove]
 
         ok = self._apply(scene_diff)
         if ok:

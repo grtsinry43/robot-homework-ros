@@ -15,12 +15,20 @@ VALID_OFFSETS = frozenset({"above", "left_of", "right_of", "front_of", "behind"}
 # Perception now snaps object z to the known layout height (plate ~0.055), so the reported
 # pz is honest. block_bottom ≈ pz − 0.02; the plate top is ~0.06, so dz ≈ +0.025 lands the
 # block bottom right on the plate surface for a gentle settle (not a free-fall).
+# dz is the gentle-settle release height of the block center over the reference's reported
+# center. History of tuning the lateral (table) placements:
+#   0.05 -> too high: block fell ~2.5 cm onto the bare flat table, bounced and rolled far.
+#   0.01 -> too low: the hand descended so far it poked/pressed into the block, and ended up
+#           in contact with it (panda_hand vs block collision, blocking the next motion).
+# 0.025 is the same gentle value "above" uses for the plate (verified: no bounce, no poke).
+# The reference block center is ~0.06 (table height), so +0.025 sets a soft drop that settles
+# the placed block next to it without the hand clipping it.
 _OFFSET_DELTA = {
     "above": (0.0, 0.0, 0.025),
-    "left_of": (0.0, 0.08, 0.05),
-    "right_of": (0.0, -0.08, 0.05),
-    "front_of": (0.08, 0.0, 0.05),
-    "behind": (-0.08, 0.0, 0.05),
+    "left_of": (0.0, 0.08, 0.025),
+    "right_of": (0.0, -0.08, 0.025),
+    "front_of": (0.08, 0.0, 0.025),
+    "behind": (-0.08, 0.0, 0.025),
 }
 
 

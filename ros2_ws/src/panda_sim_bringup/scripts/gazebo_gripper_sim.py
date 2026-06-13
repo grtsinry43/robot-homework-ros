@@ -168,15 +168,31 @@ class GazeboGripperSim(Node):
     def _on_scene(self, msg: SceneState) -> None:
         self._scene = msg
 
-    def _scene_position(self, object_id: str) -> tuple[float, float, float] | None:
+    def _scene_position(self, model_name: str) -> tuple[float, float, float] | None:
+        """Find a graspable's pose in /scene_state by LABEL, not by id.
+
+        `model_name` is the gz model name (e.g. red_block_01) used for attach/detach topics.
+        /scene_state ids can differ from / drift away from the gz model name, so match on the
+        label prefix instead: red_block_01 -> label "red_block". The scene has one object per
+        label, so this is unambiguous and immune to id drift (which used to make grasp-select
+        report "no scene pose" and abort the grasp)."""
         if self._scene is None:
             return None
+        label = self._model_label(model_name)
         for obj in self._scene.objects:
-            if obj.id != object_id:
+            if obj.label != label:
                 continue
             p = obj.pose.pose.position
             return (p.x, p.y, p.z)
         return None
+
+    @staticmethod
+    def _model_label(model_name: str) -> str:
+        # Strip a trailing _NN id suffix: "red_block_01" -> "red_block".
+        parts = model_name.rsplit("_", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            return parts[0]
+        return model_name
 
     def _current_width_m(self) -> float:
         with self._width_lock:
