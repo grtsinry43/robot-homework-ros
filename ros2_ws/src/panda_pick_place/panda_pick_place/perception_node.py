@@ -43,6 +43,19 @@ SIM_LAYOUT_POSES: dict[str, tuple[float, float, float]] = {
     "blue_plate": (0.42, 0.20, 0.055),
 }
 
+# The overhead depth back-projection measures the object's TOP face, while the rest of the
+# pipeline (offset_resolver, grasp) expects the reported z to be the object CENTER. So we
+# drop the detected z by (half-height + a small constant for the depth over-read measured on
+# this sim/camera, ~1.5 cm). Tuned against ground truth: a 4 cm block top reads ~0.092 and
+# must report 0.060 (Δ 0.032); the thin plate top reads ~0.081 and must report 0.055
+# (Δ 0.026). Per-label so blocks and the flat plate get the right correction.
+TOP_TO_CENTER_Z: dict[str, float] = {
+    "red_block": 0.032,
+    "green_block": 0.032,
+    "blue_plate": 0.026,
+}
+DEFAULT_TOP_TO_CENTER_Z = 0.03
+
 
 class PerceptionNode(Node):
     def __init__(self) -> None:
@@ -164,7 +177,8 @@ class PerceptionNode(Node):
             if xyz is None:
                 continue
             confidence = min(0.99, 0.6 + best_area / 5000.0)
-            detections.append((label, xyz[0], xyz[1], xyz[2], confidence))
+            z_center = xyz[2] - TOP_TO_CENTER_Z.get(label, DEFAULT_TOP_TO_CENTER_Z)
+            detections.append((label, xyz[0], xyz[1], z_center, confidence))
 
         if self.get_parameter("sim_layout_fallback").value:
             detections = self._merge_layout_fallback(detections)

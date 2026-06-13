@@ -1,0 +1,41 @@
+# OMPL planning config for the Panda arm.
+#
+# Without this file move_group ran OMPL with bare defaults: no path simplification, no
+# longest-valid-segment limit, so RRTConnect returned the first random tree it found and
+# the arm took wandering, "abstract" joint-space detours even for a short vertical move.
+#
+# The request adapters (AddTimeOptimalParameterization, ResolveConstraintFrames, FixWork...,
+# FixStartState*) plus OMPL's own simplify step clean the raw plan into a short, smooth
+# trajectory. RRTConnect is the standard bidirectional planner for a 7-DOF arm.
+# Humble MoveIt expects these as a single space-separated STRING, not a YAML list.
+planning_plugin: ompl_interface/OMPLPlanner
+request_adapters: >-
+  default_planner_request_adapters/AddTimeOptimalParameterization
+  default_planner_request_adapters/ResolveConstraintFrames
+  default_planner_request_adapters/FixWorkspaceBounds
+  default_planner_request_adapters/FixStartStateBounds
+  default_planner_request_adapters/FixStartStateCollision
+  default_planner_request_adapters/FixStartStatePathConstraints
+start_state_max_bounds_error: 0.1
+
+# Shrink the valid-segment fraction so collision checking is dense along edges and the
+# planner cannot take wide swings between sampled states.
+planner_configs:
+  RRTConnectkConfigDefault:
+    type: geometric::RRTConnect
+    range: 0.0  # auto = ~max extent; keep default growth step
+  RRTstarkConfigDefault:
+    type: geometric::RRTstar
+    range: 0.0
+    delay_collision_checking: 1
+
+panda_arm:
+  planner_configs:
+    - RRTConnectkConfigDefault
+    - RRTstarkConfigDefault
+  # RRTConnect is fast and, after simplification, gives clean approach motions.
+  default_planner_config: RRTConnectkConfigDefault
+  # Dense edge validation -> no long unchecked jumps -> smoother, more direct paths.
+  longest_valid_segment_fraction: 0.005
+  # Spend a bit of time simplifying/shortcutting the raw plan before returning it.
+  simplify_solutions: true
