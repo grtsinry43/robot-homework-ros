@@ -133,6 +133,10 @@ class MoveItHelper:
         error_code = wrapped.result.error_code.val if wrapped.result.error_code else -1
         if error_code == 1:
             time.sleep(_POST_EXECUTION_SETTLE_SEC)
+            # Log-only: the measured "reached" pose right after execution can lag (TF still
+            # catching up), so a large value here is unreliable as a pass/fail gate — using
+            # it to abort produced false failures on moves that actually reached. Keep it as
+            # a diagnostic; trust MoveIt's own SUCCESS for the action result.
             self._log_reached(x, y, z)
             return True, ErrorCode.INTERNAL_ERROR, ""
 
@@ -145,24 +149,26 @@ class MoveItHelper:
         suffix = f" ({hint})" if hint else ""
         return False, ErrorCode.MOTION_PLANNING_FAILED, f"MoveIt error_code={error_code}{suffix}"
 
-    def _log_reached(self, tx: float, ty: float, tz: float) -> None:
+    def _log_reached(self, tx: float, ty: float, tz: float) -> float | None:
         """Compare commanded link8 target vs where it actually ended up — surfaces when
-        MoveIt reports success but the constraint let it settle far from target."""
+        MoveIt reports success but the constraint let it settle far from target. Returns
+        the Euclidean error in meters (or None if TF is unavailable)."""
         if self._tf_buffer is None:
-            return
+            return None
         try:
             tf = self._tf_buffer.lookup_transform(
                 self._planning_frame, self._ee_link, rclpy.time.Time(),
                 timeout=rclpy.duration.Duration(seconds=0.3),
             )
         except Exception:  # noqa: BLE001
-            return
+            return None
         t = tf.transform.translation
         err = ((t.x - tx) ** 2 + (t.y - ty) ** 2 + (t.z - tz) ** 2) ** 0.5
         self._node.get_logger().info(
             f"move_to_xyz target=({tx:.3f},{ty:.3f},{tz:.3f}) "
             f"reached link8=({t.x:.3f},{t.y:.3f},{t.z:.3f}) err={err:.3f}m",
         )
+        return err
 
     def _wait_future(self, future, timeout_sec: float) -> bool:
         deadline = time.monotonic() + timeout_sec

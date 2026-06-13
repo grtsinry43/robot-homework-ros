@@ -7,8 +7,16 @@ from geometry_msgs.msg import Pose, PoseStamped
 VALID_OFFSETS = frozenset({"above", "left_of", "right_of", "front_of", "behind"})
 
 # Small displacements in panda_link0 (meters); tune during Gazebo demo.
+# NOTE on "above": this dz is the RELEASE height of the held-object CENTER over the
+# target's REPORTED center. It is NOT a clearance offset — the block is released here,
+# so it must end up resting on the plate, not free-falling. The full release chain is:
+#   block_center ≈ link8_z − gripper_center_offset(0.10);  link8_z = pz + ee_grasp_offset
+# so block_center ≈ pz − 0.10 + 0.103 ≈ pz; block_bottom ≈ pz − 0.02.
+# Perception now snaps object z to the known layout height (plate ~0.055), so the reported
+# pz is honest. block_bottom ≈ pz − 0.02; the plate top is ~0.06, so dz ≈ +0.025 lands the
+# block bottom right on the plate surface for a gentle settle (not a free-fall).
 _OFFSET_DELTA = {
-    "above": (0.0, 0.0, 0.12),
+    "above": (0.0, 0.0, 0.025),
     "left_of": (0.0, 0.08, 0.05),
     "right_of": (0.0, -0.08, 0.05),
     "front_of": (0.08, 0.0, 0.05),

@@ -1,7 +1,7 @@
 # PROGRESS.md — 课设进度追踪
 
 > 与 [DESIGN.md](./DESIGN.md)（架构契约）和 [CLAUDE.md](./CLAUDE.md)（运维命令）配合使用。  
-> **最后更新**：2026-06-08 · **整体完成度（粗估）**：~72%
+> **最后更新**：2026-06-12 · **整体完成度（粗估）**：~74%
 
 状态图例：`✅ 已验证` · `🟡 代码有/部分验证` · `❌ 未做` · `⚠️ 阻塞/已知问题`
 
@@ -17,7 +17,7 @@
 | Phase 1 感知 + blackboard | ✅ | 桌面位姿已标定（`verify_perception` 桌面 envelope PASS） |
 | Phase 2 内环 pick/place | 🟡 | pick 已 SUCCEEDED；place 待稳；默认 `skip_all_servo`（避免 RViz 假臂循环） |
 | MCP 中间层 | 🟡 | `mcp_pick_place_brain.py` 完整；未接 MCP 客户端端到端 |
-| LLM / 语音外环 | 🟡 | prompt + `resolve_user_input.py`；Whisper / ReAct 闭环未验 |
+| LLM / 语音外环 | 🟡 | prompt + 三支柱（DESIGN §4.5）代码完整；Whisper / ReAct 闭环未验；验收按 §3.5 场景 S1–S6 |
 | Git | ✅ | 当前基线已提交；后续协作改动按分支/PR 记录 |
 
 ---
@@ -63,7 +63,7 @@
 | `allow_gripper_skip`（RViz 联调） | ✅ | `pick_place_params_rviz.yaml` |
 | `pick_object` / `place_at` action | 🟡 | smoke 可发 goal；RViz 无夹爪；位姿错时 `OUT_OF_REACH` |
 | 滑移检测 / 看门狗 / abort | 🟡 | 代码有；全栈未回归 |
-| 感知物体写入 planning scene | ❌ | DESIGN §5.4 未实现 |
+| 感知物体写入 planning scene | 🟡 | PR #8：pick 路径 sync/attach/detach 已实现（防 MoveIt 弧线撞块）；place 路径未回归 |
 | `MOTION_COLLISION` 独立上报 | ❌ | 仍多映射为 `MOTION_PLANNING_FAILED` |
 
 **路径 A — Gazebo 单窗口（推荐，原 start-phase2-rviz 已改）**
@@ -90,10 +90,12 @@
 | 项 | 状态 | 备注 |
 |----|------|------|
 | `mcp_pick_place_brain.py` 四工具 + 错误 JSON | 🟡 | 需 ROS 栈在线；`requirements.txt` 已显式列出 Python `mcp` 依赖；MCP 客户端未验 |
+| 中间层三支柱（DESIGN §4.5：action library / robot context / plan executor） | 🟡 | 代码完整（`get_action_library` / `get_robot_context` / `execute_plan`）；未经 LLM 实测 |
+| 验收场景 S1–S6（DESIGN §3.5） | ❌ | 待 MCP 客户端接通后逐场景录验证；S5 失败反馈重规划是核心 |
 | `prompts/llm_system_prompt.md` | ✅ | |
 | `config/mcp_client.example.json` | ✅ | |
 | `scripts/resolve_user_input.py`（Whisper） | 🟡 | 可选依赖未在课设硬件验证 |
-| 前端 / 语音开关 UI | ❌ | 仅 CLI |
+| 前端三栏 UI（DESIGN §3.4：用户输入 / LLM 规划 / 执行状态） | ❌ | 仅 CLI；最简实现即可（CLI 富文本或单页 Web） |
 
 ---
 
@@ -178,9 +180,10 @@
 
 1. [x] 合并 Franka Gazebo 世界与 `pick_place_desk.sdf`（`gz_args` + 正确 launch 名）
 2. [ ] 在 Gazebo+臂路径跑通 `smoke_pick_place.sh`（真夹爪，关掉 `allow_gripper_skip`）
-3. [ ] 调 HSV，使红/绿块也进 `/scene_state`（蓝盘位姿已 OK）
-4. [ ] 配置 MCP 客户端，实测 `scan_scene → pick → place` 与 LLM prompt
+3. [ ] 调 HSV，使红/绿块也进 `/scene_state`（蓝盘位姿已 OK；S2/S3/S4 场景需要至少红+绿+盘三个稳定 id）
+4. [ ] 配置 MCP 客户端，按 DESIGN §3.5 验收场景逐条实测：S1 基线 → S4 叠放 → S2 循环 → S3 交换 → S6 abort → **S5 失败反馈重规划（核心）**
 5. [x] 将当前工作区 **提交 git**（感知/TF/MoveIt setup 等）
+6. [ ] 最简前端三栏 UI（DESIGN §3.4：用户输入 / LLM 规划 / 执行状态）
 
 ---
 
